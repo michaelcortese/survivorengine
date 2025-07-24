@@ -1,8 +1,15 @@
+import 'dotenv/config';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Client, Collection, Events, GatewayIntentBits } from 'discord.js';
-import { token } from '../config.json';
+
+const { TOKEN } = process.env;
+
+if (!TOKEN) {
+    console.error('Missing required environment variable: TOKEN');
+    process.exit(1);
+}
 
 // Create __dirname equivalent for ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -71,7 +78,7 @@ async function startBot() {
         await loadEvents();
         
         // Log in to Discord with your client's token
-        await client.login(token);
+        await client.login(TOKEN);
     } catch (error) {
         console.error('Error starting bot:', error);
     }

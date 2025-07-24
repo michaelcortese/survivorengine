@@ -1,8 +1,15 @@
+import 'dotenv/config';
 import { REST, Routes } from 'discord.js';
-import { clientId, guildId, token } from '../config.json';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+const { CLIENT_ID, GUILD_ID, TOKEN } = process.env;
+
+if (!CLIENT_ID || !GUILD_ID || !TOKEN) {
+    console.error('Missing required environment variables: CLIENT_ID, GUILD_ID, TOKEN');
+    process.exit(1);
+}
 
 console.log('Script started...');
 
@@ -67,7 +74,7 @@ async function loadCommands() {
 console.log('About to create REST client...');
 
 // Construct and prepare an instance of the REST module
-const rest = new REST().setToken(token);
+const rest = new REST().setToken(TOKEN);
 
 console.log('REST client created, starting deployment...');
 
@@ -86,7 +93,7 @@ console.log('REST client created, starting deployment...');
 
         // The put method is used to fully refresh all commands in the guild with the current set
         const data = await rest.put(
-            Routes.applicationGuildCommands(clientId, guildId),
+            Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
             { body: commands },
         ) as any[];
 
