@@ -1,0 +1,88 @@
+{
+    "cards": [
+        {
+            "name": "Extra Vote",
+            "quantity": 7,
+            "description": null,
+            "imageUrl": "https://i.imgur.com/pLcaVhA.jpeg"
+        },
+        {
+            "name": "Immunity Idol",
+            "quantity": 4,
+            "description": null,
+            "imageUrl": "https://i.imgur.com/W7LHM8n.png"
+        },
+        {
+            "name": "Idol Nullifier",
+            "quantity": 1,
+            "description": null,
+            "imageUrl": "https://i.imgur.com/ZMzsa5c.jpeg"
+        },
+        {
+            "name": "Sorry for You",
+            "quantity": 7,
+            "description": null,
+            "imageUrl": "https://i.imgur.com/hDQD9fq.jpeg"
+        },
+        {
+            "name": "Let's Form an Alliance",
+            "quantity": 4,
+            "description": null,
+            "imageUrl": "https://i.imgur.com/qsFgMZF.png"
+        },
+        {
+            "name": "Reward Challenge: It's a Numbers Game",
+            "quantity": 3,
+            "description": null,
+            "imageUrl": "https://i.imgur.com/nzOc8Cr.jpeg"
+        },
+        {
+            "name": "Reward Challenge: Power Pair",
+            "quantity": 3,
+            "description": null,
+            "imageUrl": "https://i.imgur.com/djyaHCJ.jpeg"
+        },
+        {
+            "name": "Reward Challenge: Do or Die",
+            "quantity": 3,
+            "description": null,
+            "imageUrl": "https://i.imgur.com/ITSs5sv.jpeg"
+        },
+        {
+            "name": "Camp Raid",
+            "quantity": 3,
+            "description": null,
+            "imageUrl": "https://i.imgur.com/oKKioMs.jpeg"
+        },
+        {
+            "name": "The Spy Shack",
+            "quantity": 3,
+            "description": null,
+            "imageUrl": "https://i.imgur.com/3gl7xcr.jpeg"
+        },
+        {
+            "name": "Knowledge is Power",
+            "quantity": 3,
+            "description": null,
+            "imageUrl": "https://i.imgur.com/zplia7u.jpeg"
+        },
+        {
+            "name": "Tribal Advantage: Control the Vote",
+            "quantity": 2,
+            "description": null,
+            "imageUrl": "https://i.imgur.com/jNlZ87z.jpeg"
+        },
+        {
+            "name": "Tribal Advantage: Goodwill Gamble",
+            "quantity": 3,
+            "description": null,
+            "imageUrl": "https://i.imgur.com/PdlGGRU.jpeg"
+        },
+        {
+            "name": "Tribal Advantage: I'm the Leader Now",
+            "quantity": 1,
+            "description": null,
+            "imageUrl": "https://i.imgur.com/jBGDVDm.jpeg"
+        }
+    ]
+}
