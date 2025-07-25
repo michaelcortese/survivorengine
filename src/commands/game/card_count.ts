@@ -1,3 +1,4 @@
+// TODO REFACTOR
 import { SlashCommandBuilder, ChatInputCommandInteraction } from "discord.js";
 import Game from "../../game/game";
 
