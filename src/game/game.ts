@@ -255,4 +255,4 @@ const Game: GameState = {
   },
 };
 
-export default Game;
+export { Game, TribalCouncilState };

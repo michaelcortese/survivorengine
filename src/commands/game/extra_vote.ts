@@ -3,7 +3,7 @@ import {
   ChatInputCommandInteraction,
   MessageFlags,
 } from "discord.js";
-import Game from "../../game/game";
+import { Game } from "../../game/game";
 
 const HAS_TARGET = false;
 const REQUIRED_CARD = "Extra Vote";

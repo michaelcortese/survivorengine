@@ -3,8 +3,7 @@ import {
   ChatInputCommandInteraction,
   MessageFlags,
 } from "discord.js";
-import Game from "../../game/game";
-
+import { Game, TribalCouncilState } from "../../game/game";
 const HAS_TARGET = false;
 const REQUIRED_CARD = null;
 const INTERUPTABLE = false;
@@ -32,6 +31,12 @@ export default {
     const card = Game.deck.drawCard();
     if (card === undefined) {
       return interaction.reply("No cards left in the deck.");
+    }
+    // CHECK FOR TRIBAL COUNCIL
+    if (card.getName() == "Tribal Council") {
+      // Card drawn was tribal council, tell game
+      Game.tribalCouncilState = TribalCouncilState.Discussion;
+      return;
     }
     player.hand.push(card);
     await interaction.reply({
