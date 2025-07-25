@@ -10,3 +10,4 @@
 - [ ] Tribal council cards and leader (equal distribution)
 - [ ] See distance between tribal council cards
 - [ ] Camp raid (steal next draw)
+- [ ] Add card descriptions
