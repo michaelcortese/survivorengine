@@ -92,6 +92,8 @@ const Game: GameState = {
       }
     }
 
+    this.deck.shuffle();
+    this.deck.addAndDisperseTribalCouncilCards(players.length);
     console.log("Game started!");
   },
 

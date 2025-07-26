@@ -3,85 +3,85 @@
     {
       "name": "Extra Vote",
       "quantity": 7,
-      "description": null,
+      "description": "You may use this card in secret during a Tribal Council to vote for a player.",
       "imageUrl": "https://i.imgur.com/pLcaVhA.jpeg"
     },
     {
       "name": "Immunity Idol",
       "quantity": 4,
-      "description": null,
+      "description": "Can only be played at Tribal Council after all players have voted, but before votes are tallied. Any votes for you (or the player you choose) do not count.",
       "imageUrl": "https://i.imgur.com/W7LHM8n.png"
     },
     {
       "name": "Idol Nullifier",
       "quantity": 1,
-      "description": null,
+      "description": "Can only be played after an immunity idol, but before votes are tallied. Cancels that immunity idol.",
       "imageUrl": "https://i.imgur.com/ZMzsa5c.jpeg"
     },
     {
       "name": "Sorry for You",
       "quantity": 7,
-      "description": null,
+      "description": "Can be played any time someone tries to take cards from you. Instead, they get nothing from you and must discard 1 card.",
       "imageUrl": "https://i.imgur.com/hDQD9fq.jpeg"
     },
     {
       "name": "Let's Form an Alliance",
       "quantity": 4,
-      "description": null,
+      "description": "Pick a player to be your partner. You both steal a random card from 1 player each (you can pick the same player).",
       "imageUrl": "https://i.imgur.com/qsFgMZF.png"
     },
     {
       "name": "Reward Challenge: It's a Numbers Game",
       "quantity": 3,
-      "description": null,
+      "description": "On three, all players show 1-5 fingers. The player who shows the lowest unique number steals 2 random cards from any player.",
       "imageUrl": "https://i.imgur.com/nzOc8Cr.jpeg"
     },
     {
       "name": "Reward Challenge: Power Pair",
       "quantity": 3,
-      "description": null,
+      "description": "On three, 3 players (including you) hold out 1, 2, or 3 fingers. If 2 are the same, each steals 1 card from the 3rd player. If all are the same, each discards 1 card. If all are different, play again.",
       "imageUrl": "https://i.imgur.com/djyaHCJ.jpeg"
     },
     {
       "name": "Reward Challenge: Do or Die",
       "quantity": 3,
-      "description": null,
+      "description": "Play Rock Paper Scissors against any player. If you tie, swap 1 card with them. If you don't, the winner steals 2 cards from the loser.",
       "imageUrl": "https://i.imgur.com/ITSs5sv.jpeg"
     },
     {
       "name": "Camp Raid",
       "quantity": 3,
-      "description": null,
+      "description": "Place in front of any player. You take the next card they draw after they look at it, then discard this card.",
       "imageUrl": "https://i.imgur.com/oKKioMs.jpeg"
     },
     {
       "name": "The Spy Shack",
       "quantity": 3,
-      "description": null,
+      "description": "Look at any player's cards and take one.",
       "imageUrl": "https://i.imgur.com/3gl7xcr.jpeg"
     },
     {
       "name": "Knowledge is Power",
       "quantity": 3,
-      "description": null,
+      "description": "Ask any player for a card by name. If they have it, they must give you one.",
       "imageUrl": "https://i.imgur.com/zplia7u.jpeg"
     },
     {
       "name": "Tribal Advantage: Control the Vote",
       "quantity": 2,
-      "description": null,
+      "description": "Can only be played at Tribal Council. Take any player's vote card. You MUST use it in addition to your vote card at this Tribal Council.",
       "imageUrl": "https://i.imgur.com/jNlZ87z.jpeg"
     },
     {
       "name": "Tribal Advantage: Goodwill Gamble",
       "quantity": 3,
-      "description": null,
+      "description": "Can only be played at Tribal Council. Give this card to any other player. This counts as 1 vote and MUST be used at this Tribal Council.",
       "imageUrl": "https://i.imgur.com/PdlGGRU.jpeg"
     },
     {
       "name": "Tribal Advantage: I'm the Leader Now",
       "quantity": 1,
-      "description": null,
+      "description": "Can only be played at Tribal Council. You are the Tribal Council Leader and it's your turn when the Tribal Council ends.",
       "imageUrl": "https://i.imgur.com/jBGDVDm.jpeg"
     }
   ]

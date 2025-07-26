@@ -33,7 +33,7 @@ export default {
       return interaction.reply("No cards left in the deck.");
     }
     // CHECK FOR TRIBAL COUNCIL
-    if (card.getName() == "Tribal Council") {
+    if (card.getName() === "Tribal Council") {
       // Card drawn was tribal council, tell game
       Game.tribalCouncilState = TribalCouncilState.Discussion;
       return;
