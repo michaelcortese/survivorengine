@@ -37,7 +37,7 @@ export default {
     player.votes++;
     await interaction.reply({
       content: `You played an **Extra Vote** and gave yourself an extra vote in the upcoming Tribal Council! You currently have ${player.votes} votes.`,
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     });
   },
 };

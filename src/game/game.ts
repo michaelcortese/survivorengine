@@ -2,7 +2,11 @@ import Deck from "./deck";
 import Player from "./player";
 import Card from "./card";
 
-import { ChatInputCommandInteraction, InteractionResponse } from "discord.js";
+import {
+  ChatInputCommandInteraction,
+  InteractionResponse,
+  MessageFlags,
+} from "discord.js";
 
 const CARDS_PER_PLAYER = 3;
 // When changing, also change in steal_random.ts
@@ -172,7 +176,7 @@ const Game: GameState = {
       return {
         error: {
           content: "No game is currently in progress!",
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         },
       };
     }
@@ -182,7 +186,7 @@ const Game: GameState = {
       return {
         error: {
           content: "You are not a player in the current game!",
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         },
       };
     }
@@ -196,7 +200,7 @@ const Game: GameState = {
         return {
           error: {
             content: "You must specify a target player!",
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           },
         };
       }
@@ -205,7 +209,7 @@ const Game: GameState = {
         return {
           error: {
             content: "The specified player is not in the game!",
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           },
         };
       }
@@ -218,7 +222,7 @@ const Game: GameState = {
       return {
         error: {
           content: "This action cannot be played during the tribal council!",
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         },
       };
     }
@@ -228,14 +232,17 @@ const Game: GameState = {
         error: {
           content:
             "This action cannot be played at this time. Wait a moment and try again.",
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         },
       };
     }
 
     if (stoppingInteraction && !Game.interruption.active) {
       return {
-        error: { content: "There is no interaction to stop!", ephemeral: true },
+        error: {
+          content: "There is no interaction to stop!",
+          flags: MessageFlags.Ephemeral,
+        },
       };
     }
 
@@ -245,7 +252,7 @@ const Game: GameState = {
       return {
         error: {
           content: `You must have the ${requiredCard} card to play this action!`,
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         },
       };
     } else if (requiredCard && player.hasCard(requiredCard)) {

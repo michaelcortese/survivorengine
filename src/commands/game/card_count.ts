@@ -1,5 +1,9 @@
 // TODO REFACTOR
-import { SlashCommandBuilder, ChatInputCommandInteraction } from "discord.js";
+import {
+  SlashCommandBuilder,
+  ChatInputCommandInteraction,
+  MessageFlags,
+} from "discord.js";
 import { Game } from "../../game/game";
 
 export default {
@@ -20,7 +24,7 @@ export default {
     if (!targetUser) {
       return interaction.reply({
         content: "Invalid user specified",
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
 
@@ -28,14 +32,14 @@ export default {
     if (!player) {
       return interaction.reply({
         content: "The mentioned user is not a player in the current game",
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
 
     const cardCount = player.hand.length;
     await interaction.reply({
       content: `${player.username} has ${cardCount} card${cardCount !== 1 ? "s" : ""} in their hand.`,
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     });
   },
 };

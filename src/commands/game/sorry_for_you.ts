@@ -32,17 +32,17 @@ export default {
     const { player } = result;
 
     // if (!player) {
-    //     return interaction.reply({content: 'You are not a player in the current game!', ephemeral: true});
+    //     return interaction.reply({content: 'You are not a player in the current game!', flags: MessageFlags.Ephemeral});
     // }
     // //check if the player has the Sorry For You card
     // if (!player.hasCard('Sorry for You')) {
-    //     return interaction.reply({content: 'You do not have the Sorry For You card!', ephemeral: true});
+    //     return interaction.reply({content: 'You do not have the Sorry For You card!', flags: MessageFlags.Ephemeral});
     // }
     // if (!Game.interruption.active) {
-    //     return interaction.reply({content: 'You can\'t play this here', ephemeral: true});
+    //     return interaction.reply({content: 'You can\'t play this here', flags: MessageFlags.Ephemeral});
     // }
     // if (Game.interruption.sender && Game.interruption.sender.id === player.id) {
-    //     return interaction.reply({content: 'You can\'t stop your own interaction!', ephemeral: true});
+    //     return interaction.reply({content: 'You can\'t stop your own interaction!', flags: MessageFlags.Ephemeral});
     // }
     // //Remove the Sorry For You card from the player's hand
     // player.removeCard('Sorry For You');
