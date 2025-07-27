@@ -1,6 +1,7 @@
 import Deck from "./deck";
 import Player from "./player";
 import Card from "./card";
+import TribalCouncil from "./tribal_council";
 
 import {
   ChatInputCommandInteraction,
@@ -42,6 +43,7 @@ interface GameState {
   interruptionTimeoutId: NodeJS.Timeout | null;
   tribalCouncilState: TribalCouncilState;
   tribalCouncilLeader: Player | null;
+  tribalCouncil: TribalCouncil | null;
   startGame: (players: Player[]) => void;
   updatePlayerHand: (playerId: string, card: Card) => void;
   getPlayer: (username: string) => Player | undefined;
@@ -57,8 +59,9 @@ interface GameState {
     stoppingInteraction?: boolean,
     canPlayDuringTribalCouncil?: boolean,
   ) =>
-    | { error: { content: string; ephemeral: boolean } }
+    | { error: { content: string; flags: MessageFlags | undefined } }
     | { player: Player; targetPlayer?: Player };
+  setTribalCouncil: (tribalCouncil: TribalCouncil | null) => void;
 }
 
 const Game: GameState = {
@@ -75,6 +78,7 @@ const Game: GameState = {
   interruptionTimeoutId: null,
   tribalCouncilState: TribalCouncilState.NotStarted,
   tribalCouncilLeader: null,
+  tribalCouncil: null,
 
   startGame(players: Player[]): void {
     this.active = true;
@@ -262,6 +266,9 @@ const Game: GameState = {
     // Success case - return player references
     return hasTarget ? { player, targetPlayer: targetPlayer! } : { player };
   },
+  setTribalCouncil(tribalCouncil: TribalCouncil | null) {
+    Game.tribalCouncil = tribalCouncil;
+  },
 };
 
-export { Game, TribalCouncilState };
+export { Game, TribalCouncilState, GameState };
