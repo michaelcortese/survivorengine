@@ -10,6 +10,7 @@ class Deck {
       const card = new Card(
         cardData.name,
         cardData.description,
+        cardData.compactDescription,
         cardData.imageUrl,
       );
       for (let i = 0; i < cardData.quantity; i++) {

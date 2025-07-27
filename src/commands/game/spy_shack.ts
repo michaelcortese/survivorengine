@@ -102,7 +102,7 @@ export default {
       .addOptions(
         targetPlayer.hand.map((card, index) => ({
           label: card.getName(),
-          description: card.getDescription() || "No description",
+          description: card.compactDescription || "No description",
           value: index.toString(),
         })),
       );

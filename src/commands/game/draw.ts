@@ -1,3 +1,5 @@
+// TODO add draw TRIBAL
+import TribalCouncil from "../../game/tribal_council";
 import {
   SlashCommandBuilder,
   ChatInputCommandInteraction,
@@ -36,6 +38,8 @@ export default {
     if (card.getName() === "Tribal Council") {
       // Card drawn was tribal council, tell game
       Game.tribalCouncilState = TribalCouncilState.Discussion;
+      Game.setTribalCouncil(new TribalCouncil(interaction, false));
+      await Game.tribalCouncil?.init();
       return;
     }
     player.hand.push(card);

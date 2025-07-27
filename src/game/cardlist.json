@@ -4,84 +4,98 @@
       "name": "Extra Vote",
       "quantity": 7,
       "description": "You may use this card in secret during a Tribal Council to vote for a player.",
+      "compactDescription": "Use in secret during Tribal Council to vote for a player.",
       "imageUrl": "https://i.imgur.com/pLcaVhA.jpeg"
     },
     {
       "name": "Immunity Idol",
       "quantity": 4,
       "description": "Can only be played at Tribal Council after all players have voted, but before votes are tallied. Any votes for you (or the player you choose) do not count.",
+      "compactDescription": "Play after voting but before tallying. Votes for you/chosen player don't count.",
       "imageUrl": "https://i.imgur.com/W7LHM8n.png"
     },
     {
       "name": "Idol Nullifier",
       "quantity": 1,
       "description": "Can only be played after an immunity idol, but before votes are tallied. Cancels that immunity idol.",
+      "compactDescription": "Play after an immunity idol but before vote tallying. Cancels that idol.",
       "imageUrl": "https://i.imgur.com/ZMzsa5c.jpeg"
     },
     {
       "name": "Sorry for You",
       "quantity": 7,
       "description": "Can be played any time someone tries to take cards from you. Instead, they get nothing from you and must discard 1 card.",
+      "compactDescription": "Play when someone tries to take your cards. They get nothing and discard 1 card.",
       "imageUrl": "https://i.imgur.com/hDQD9fq.jpeg"
     },
     {
       "name": "Let's Form an Alliance",
       "quantity": 4,
       "description": "Pick a player to be your partner. You both steal a random card from 1 player each (you can pick the same player).",
+      "compactDescription": "Pick a partner. You both steal a random card from 1 player each.",
       "imageUrl": "https://i.imgur.com/qsFgMZF.png"
     },
     {
       "name": "Reward Challenge: It's a Numbers Game",
       "quantity": 3,
       "description": "On three, all players show 1-5 fingers. The player who shows the lowest unique number steals 2 random cards from any player.",
+      "compactDescription": "All show 1-5 fingers. Lowest unique number steals 2 cards from any player.",
       "imageUrl": "https://i.imgur.com/nzOc8Cr.jpeg"
     },
     {
       "name": "Reward Challenge: Power Pair",
       "quantity": 3,
       "description": "On three, 3 players (including you) hold out 1, 2, or 3 fingers. If 2 are the same, each steals 1 card from the 3rd player. If all are the same, each discards 1 card. If all are different, play again.",
+      "compactDescription": "3 players show 1-3 fingers. Two same: steal from 3rd. All same: discard. Diff: retry.",
       "imageUrl": "https://i.imgur.com/djyaHCJ.jpeg"
     },
     {
       "name": "Reward Challenge: Do or Die",
       "quantity": 3,
       "description": "Play Rock Paper Scissors against any player. If you tie, swap 1 card with them. If you don't, the winner steals 2 cards from the loser.",
+      "compactDescription": "Rock Paper Scissors vs any player. Tie: swap 1 card. Win/lose: winner steals 2.",
       "imageUrl": "https://i.imgur.com/ITSs5sv.jpeg"
     },
     {
       "name": "Camp Raid",
       "quantity": 3,
       "description": "Place in front of any player. You take the next card they draw after they look at it, then discard this card.",
+      "compactDescription": "Place on any player. Take their next drawn card after they see it.",
       "imageUrl": "https://i.imgur.com/oKKioMs.jpeg"
     },
     {
       "name": "The Spy Shack",
       "quantity": 3,
       "description": "Look at any player's cards and take one.",
+      "compactDescription": "Look at any player's cards and take one.",
       "imageUrl": "https://i.imgur.com/3gl7xcr.jpeg"
     },
     {
       "name": "Knowledge is Power",
       "quantity": 3,
       "description": "Ask any player for a card by name. If they have it, they must give you one.",
+      "compactDescription": "Ask any player for a card by name. If they have it, they must give you one.",
       "imageUrl": "https://i.imgur.com/zplia7u.jpeg"
     },
     {
       "name": "Tribal Advantage: Control the Vote",
       "quantity": 2,
       "description": "Can only be played at Tribal Council. Take any player's vote card. You MUST use it in addition to your vote card at this Tribal Council.",
+      "compactDescription": "At Tribal Council: take any player's vote. Use it plus your own vote.",
       "imageUrl": "https://i.imgur.com/jNlZ87z.jpeg"
     },
     {
       "name": "Tribal Advantage: Goodwill Gamble",
       "quantity": 3,
       "description": "Can only be played at Tribal Council. Give this card to any other player. This counts as 1 vote and MUST be used at this Tribal Council.",
+      "compactDescription": "At Tribal Council: give to any player. Counts as 1 vote they must use.",
       "imageUrl": "https://i.imgur.com/PdlGGRU.jpeg"
     },
     {
       "name": "Tribal Advantage: I'm the Leader Now",
       "quantity": 1,
       "description": "Can only be played at Tribal Council. You are the Tribal Council Leader and it's your turn when the Tribal Council ends.",
+      "compactDescription": "At Tribal Council: become the leader. Your turn when council ends.",
       "imageUrl": "https://i.imgur.com/jBGDVDm.jpeg"
     }
   ]
