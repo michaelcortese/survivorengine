@@ -42,7 +42,7 @@ export default {
     }
     if (targetPlayer.hand.length === 0) {
       return interaction.reply({
-        content: `${targetPlayer.username} has no cards to steal!`,
+        content: `<@${targetPlayer.id}> has no cards to steal!`,
         flags: MessageFlags.Ephemeral,
       });
     }
@@ -100,7 +100,7 @@ export default {
     player.hand.push(cardToSteal);
 
     await interaction.followUp({
-      content: `You successfully stole a ${cardToSteal.getName()} from ${targetPlayer.username}!`,
+      content: `You successfully stole a ${cardToSteal.getName()} from <@${targetPlayer.id}>!`,
       flags: MessageFlags.Ephemeral,
     });
   },

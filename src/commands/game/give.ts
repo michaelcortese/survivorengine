@@ -171,7 +171,7 @@ export default {
           `You received **${cardToGive.getName()}** from <@${player.id}> in the Survivor game!`,
         );
       } catch (error) {
-        console.log(`Could not send DM to ${targetPlayer.username}:`, error);
+        console.log(`Could not send DM to <@${targetPlayer.id}>:`, error);
       }
 
       // Send public message only if not private

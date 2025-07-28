@@ -53,7 +53,6 @@ export default {
         flags: MessageFlags.Ephemeral,
       });
     }
-
     // Respond immediately to Discord (public message)
     let msg = await interaction.reply({
       content: `<@${player.id}> is attempting to spy on <@${targetPlayer.id}>... (They have ~15 seconds remaining to play "Sorry For You")`,
@@ -219,7 +218,7 @@ export default {
           `<@${player.id}> spied on your hand and took **${cardToTake.getName()}** in the Survivor game!`,
         );
       } catch (error) {
-        console.log(`Could not send DM to ${targetPlayer.username}:`, error);
+        console.log(`Could not send DM to <@${targetPlayer.id}>:`, error);
       }
 
       // Update public message

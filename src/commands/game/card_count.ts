@@ -38,7 +38,7 @@ export default {
 
     const cardCount = player.hand.length;
     await interaction.reply({
-      content: `${player.username} has ${cardCount} card${cardCount !== 1 ? "s" : ""} in their hand.`,
+      content: `<@${player.id}> has ${cardCount} card${cardCount !== 1 ? "s" : ""} in their hand.`,
       flags: MessageFlags.Ephemeral,
     });
   },
