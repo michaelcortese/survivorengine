@@ -11,3 +11,7 @@
 - [x] See distance between tribal council cards
 - [ ] Camp raid (steal next draw)
 - [x] Add card descriptions
+- [ ] Force discard after getting sorry-for-you'd
+- [ ] REWARD CHALLENGE
+- [ ] Inheritance functionality
+- [ ] Immunity Idols
