@@ -10,7 +10,10 @@ export default {
       option.setName("player").setDescription("player one").setRequired(true),
     )
     .addUserOption((option) =>
-      option.setName("player2").setDescription("player two").setRequired(false),
+      option.setName("player2").setDescription("player two").setRequired(true),
+    )
+    .addUserOption((option) =>
+      option.setName("player3").setDescription("player three").setRequired(true),
     ),
   async execute(interaction: ChatInputCommandInteraction) {
     if (Game.active) {
