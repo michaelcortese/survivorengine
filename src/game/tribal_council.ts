@@ -4,13 +4,18 @@ import { ChatInputCommandInteraction, MessageFlags } from "discord.js";
 
 class TribalCouncil {
   interaction: ChatInputCommandInteraction;
-  elims: number;
+  isDouble: boolean;
   votesArray: Player[];
+  tiedPlayers: Player[];
+  leader: Player | undefined;
 
   constructor(interaction: ChatInputCommandInteraction, isDouble: boolean) {
     this.interaction = interaction;
-    this.elims = isDouble ? 2 : 1;
+    this.isDouble = isDouble;
     this.votesArray = [];
+    this.tiedPlayers = [];
+    this.leader =
+      Game.tribalCouncilLeader || Game.getPlayerFromUserId(interaction.user.id);
   }
 
   async init() {
@@ -36,10 +41,16 @@ class TribalCouncil {
       if (player) {
         player.lives--;
         await this.interaction.followUp({
-          content: `<@${player.id}> has been voted out, they have ${player.lives} lives left.`,
+          content: `
+            <@${player.id}> has been voted out, they have ${player.lives} lives left.
+          `,
         });
+        if (!player.isAlive()) {
+          await this.interaction.followUp({
+            content: `<@${player.id}> has been ELIMINATED and their torch has been snuffed. https://tenor.com/bExpm.gif`,
+          });
+        }
       } else {
-        //handle tie
       }
     }
   }

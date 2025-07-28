@@ -10,6 +10,7 @@ const REQUIRED_CARD = "Extra Vote";
 const INTERRUPTABLE = false;
 const STOPPING_INTERACTION = false;
 const CAN_PLAY_DURING_TRIBAL_COUNCIL = true;
+const ONLY_DURING_TRIBAL_COUNCIL = true;
 
 export default {
   data: new SlashCommandBuilder()
@@ -25,6 +26,7 @@ export default {
       INTERRUPTABLE,
       STOPPING_INTERACTION,
       CAN_PLAY_DURING_TRIBAL_COUNCIL,
+      ONLY_DURING_TRIBAL_COUNCIL,
     );
 
     if ("error" in result) {

@@ -58,6 +58,7 @@ interface GameState {
     interruptable: boolean,
     stoppingInteraction?: boolean,
     canPlayDuringTribalCouncil?: boolean,
+    onlyDuringTribalCouncil?: boolean,
   ) =>
     | { error: { content: string; flags: MessageFlags | undefined } }
     | { player: Player; targetPlayer?: Player };
@@ -158,16 +159,6 @@ const Game: GameState = {
     Game.interruption.stopped = true;
   },
 
-  /**
-   * This is why card games should not be implemented in code.
-   * @param interaction
-   * @param hasTarget
-   * @param requiredCard
-   * @param interruptable
-   * @param stoppingInteraction
-   * @param canPlayDuringTribalCouncil
-   * @returns
-   */
   checkForError(
     interaction,
     hasTarget,
@@ -175,6 +166,7 @@ const Game: GameState = {
     interruptable,
     stoppingInteraction = false,
     canPlayDuringTribalCouncil = false,
+    onlyDuringTribalCouncil = false,
   ) {
     if (!Game.active) {
       return {
@@ -226,6 +218,18 @@ const Game: GameState = {
       return {
         error: {
           content: "This action cannot be played during the tribal council!",
+          flags: MessageFlags.Ephemeral,
+        },
+      };
+    }
+
+    if (
+      Game.tribalCouncilState === TribalCouncilState.NotStarted &&
+      onlyDuringTribalCouncil
+    ) {
+      return {
+        error: {
+          content: "This action cannot be played outside of tribal council!",
           flags: MessageFlags.Ephemeral,
         },
       };
