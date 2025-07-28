@@ -29,6 +29,7 @@ class Deck {
         `Inheritance: ${player.username}`,
         null,
         "https://i.imgur.com/DG0IZxh.png",
+        undefined,
         tribalVotes,
         player,
       );
@@ -46,6 +47,7 @@ class Deck {
         `Tribal Council`,
         null,
         "https://i.imgur.com/DG0IZxh.png",
+        undefined,
         1,
         undefined,
       );

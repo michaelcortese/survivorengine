@@ -19,7 +19,7 @@ export default {
     }
 
     const hand = player.hand
-      .map((card) => card.getName() + "\n" + card.getImage())
+      .map((card, i) => card.getName() + "\n" + card.getImage() + `?v=${i}`)
       .join("\n");
     await interaction.reply({
       content: `${hand}`,
