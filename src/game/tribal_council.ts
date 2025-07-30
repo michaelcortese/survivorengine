@@ -49,8 +49,25 @@ class TribalCouncil {
           await this.interaction.followUp({
             content: `<@${player.id}> has been ELIMINATED and their torch has been snuffed. https://tenor.com/bExpm.gif`,
           });
+          // check if final tribal should be started
+          // if (Game.getAlivePlayers.length == 2) {
+          //   // set new tribal leader and start final
+          //   // TODO maybe make this a separate command?
+          //   this.leader = player;
+          // }
+
+          Game.tribalCouncilState = TribalCouncilState.NotStarted;
+          Game.tribalCouncil = null;
         }
       } else {
+        // Handle tie case
+        await this.interaction.followUp({
+          content: `
+            The vote was a tie between ${this.votesArray.map((player) => `<@${player.id}>`).join(", ")}!\n
+            As the tribal council leader, <@${this.leader?.id}> must break the tie.\n
+            <@${this.leader?.id}>, use "/breaktie @player" to select the player to eliminate.
+          `,
+        });
       }
     }
   }

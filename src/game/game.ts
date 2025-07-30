@@ -49,6 +49,7 @@ interface GameState {
   getPlayer: (username: string) => Player | undefined;
   getPlayerFromUserId: (userId: string) => Player | undefined;
   nextPlayer: () => Player | undefined;
+  getAlivePlayers: () => Player[];
   startCooldown: (sender: Player, target: Player) => void;
   stopInterruption: () => void;
   checkForError: (
@@ -272,6 +273,9 @@ const Game: GameState = {
   },
   setTribalCouncil(tribalCouncil: TribalCouncil | null) {
     Game.tribalCouncil = tribalCouncil;
+  },
+  getAlivePlayers(): Player[] {
+    return Game.players.filter((player) => player.isAlive());
   },
 };
 
