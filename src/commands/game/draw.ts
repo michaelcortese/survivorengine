@@ -47,5 +47,9 @@ export default {
       content: `You drew a ${card.getName()} (${card.getImage()}).`,
       flags: MessageFlags.Ephemeral,
     });
+    return await interaction.followUp({
+      content: `<@${player.id}> drew a card.`,
+      flags: undefined,
+    });
   },
 };
