@@ -1,3 +1,4 @@
+// TODO ensure that tribal council validation is working
 import {
   SlashCommandBuilder,
   ChatInputCommandInteraction,

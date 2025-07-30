@@ -4,8 +4,8 @@ import {
   MessageFlags,
 } from "discord.js";
 import { Game, TribalCouncilState } from "../../game/game";
-const HAS_TARGET = false;
-const REQUIRED_CARD = "Tribal Advantage: I'm the Leader Now";
+const HAS_TARGET = true;
+const REQUIRED_CARD = null;
 const INTERUPTABLE = false;
 const STOPPING_INTERACTION = false;
 const CAN_BE_PLAYED_TRIBAL_COUNCIL = true;
@@ -13,9 +13,9 @@ const ONLY_DURING_TRIBAL_COUNCIL = true;
 
 export default {
   data: new SlashCommandBuilder()
-    .setName("im_the_leader")
+    .setName("break_tie")
     .setDescription(
-      "TRIBAL COUNCIL ONLY: make yourself the leader of the current tribal council.",
+      "TRIBAL COUNCIL LEADER ONLY: Break the tie in the tribal council.",
     ),
   async execute(interaction: ChatInputCommandInteraction) {
     const result = Game.checkForError(
@@ -33,27 +33,26 @@ export default {
         flags: MessageFlags.Ephemeral,
       });
     }
-    const { player } = result;
-
+    const { player, targetPlayer } = result;
+    if (!targetPlayer) {
+      return interaction.reply({
+        content: "Unable to break tie. No target player found.",
+        flags: MessageFlags.Ephemeral,
+      });
+    }
     if (Game.tribalCouncilState === TribalCouncilState.NotStarted) {
       return interaction.reply({
         content: "Unable to play card. Tribal Council has not started.",
         flags: MessageFlags.Ephemeral,
       });
     }
-    if (Game.tribalCouncil?.leader === player) {
+    if (Game.tribalCouncil?.leader !== player) {
       return interaction.reply({
-        content: "You are already the leader of the tribal council.",
+        content: "You are not the leader of the tribal council.",
         flags: MessageFlags.Ephemeral,
       });
     }
-    if (Game.tribalCouncil?.leader) {
-      let oldLeaderId = Game.tribalCouncil.leader.id;
-      Game.tribalCouncil.leader = player;
-      return interaction.reply({
-        content: `<@${player.id}> has played **Tribal Advantage: I'm the Leader Now**, and is the NEW leader of the tribal council. https://i.imgur.com/jBGDVDm.jpeg`,
-      });
-    }
+    return await Game.tribalCouncil.breakTie(targetPlayer);
     await interaction.reply({
       content: `An unexpected error occurred.`,
       flags: MessageFlags.Ephemeral,

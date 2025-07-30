@@ -44,6 +44,7 @@ interface GameState {
   tribalCouncilState: TribalCouncilState;
   tribalCouncilLeader: Player | null;
   tribalCouncil: TribalCouncil | null;
+  finalTribalLeader: Player | null;
   startGame: (players: Player[]) => void;
   updatePlayerHand: (playerId: string, card: Card) => void;
   getPlayer: (username: string) => Player | undefined;
@@ -81,6 +82,7 @@ const Game: GameState = {
   tribalCouncilState: TribalCouncilState.NotStarted,
   tribalCouncilLeader: null,
   tribalCouncil: null,
+  finalTribalLeader: null,
 
   startGame(players: Player[]): void {
     this.active = true;

@@ -20,21 +20,20 @@ class TribalCouncil {
 
   async init() {
     for (const player of Game.players) {
-      if (player.isAlive()) player.votes += player.lives;
+      //ONE VOTE PER PLAYER (excluding extras)
+      if (player.isAlive()) player.votes += 1;
     }
     await this.interaction.deferReply();
-    await this.interaction.editReply({ content: "TRIBAL COUNCIL STARTED" });
-    await this.interaction.followUp({
-      content:
-        "You have 8 minutes (30 seconds for testing lololol) to discuss.",
+    await this.interaction.editReply({
+      content: `Welcome to Tribal Council. Tonight, one of you will be voted out of the tribe. <@${this.leader?.id}> is your tribal council leader for tonight's vote. You have 8 minutes (30 seconds for testing lololol) to discuss your vote before we get to the voting.`,
     });
     // wait for 30 seconds
     await new Promise((resolve) => setTimeout(resolve, 30 * 1000));
     Game.tribalCouncilState = TribalCouncilState.Voting;
     await this.interaction.followUp({
-      content: "Voting begins now, you have 30 seconds to vote.",
+      content: "It is time to vote. You have 60 seconds to cast your vote.",
     });
-    await new Promise((resolve) => setTimeout(resolve, 30 * 1000));
+    await new Promise((resolve) => setTimeout(resolve, 60 * 1000));
     const result = await this.readVotes();
     if (!result.tie) {
       const player = result.player;
@@ -55,20 +54,25 @@ class TribalCouncil {
           //   // TODO maybe make this a separate command?
           //   this.leader = player;
           // }
-
-          Game.tribalCouncilState = TribalCouncilState.NotStarted;
-          Game.tribalCouncil = null;
         }
-      } else {
-        // Handle tie case
-        await this.interaction.followUp({
+        Game.tribalCouncilState = TribalCouncilState.NotStarted;
+        Game.tribalCouncil = null;
+        return await this.interaction.followUp({
           content: `
-            The vote was a tie between ${this.votesArray.map((player) => `<@${player.id}>`).join(", ")}!\n
-            As the tribal council leader, <@${this.leader?.id}> must break the tie.\n
-            <@${this.leader?.id}>, use "/breaktie @player" to select the player to eliminate.
+            The tribal council has ended.
           `,
         });
       }
+    } else {
+      // Handle tie case
+      console.log("Tie");
+      await this.interaction.followUp({
+        content: `
+          The vote was a tie between ${result.players?.map((player) => `<@${player.id}>`).join(", ")}!\n
+          As the tribal council leader, <@${this.leader?.id}> must break the tie.\n
+          <@${this.leader?.id}>, use "/break_tie @player" to select the player to eliminate.
+        `,
+      });
     }
   }
 
@@ -175,7 +179,8 @@ class TribalCouncil {
 
       return { tie: false, player: eliminatedPlayer };
     } else {
-      await new Promise((resolve) => setTimeout(resolve, 2 * 1000));
+      this.tiedPlayers = playersWithMostVotes;
+      await new Promise((resolve) => setTimeout(resolve, 1 * 1000));
       await this.interaction.followUp({
         content: `WE HAVE A TIE! ${playersWithMostVotes.map((p) => `<@${p.id}>`).join(" and ")} are tied with ${this.numberToWords(maxVotes).toUpperCase()} ${maxVotes === 1 ? "VOTE" : "VOTES"} each.`,
       });
@@ -204,6 +209,38 @@ class TribalCouncil {
     const suffix = ["th", "st", "nd", "rd"];
     const value = num % 100;
     return num + (suffix[(value - 20) % 10] || suffix[value] || suffix[0]);
+  }
+
+  async breakTie(player: Player) {
+    const totalLivesLost = Game.players.reduce(
+      (total, player) => total + (2 - player.lives),
+      0,
+    );
+    const eliminationNumber = totalLivesLost + 1;
+    player.lives--;
+    await this.interaction.followUp({
+      content: `
+        ${this.getOrdinal(eliminationNumber)} person voted out of Survivor,\n
+        <@${player.id}>.\n
+        They have ${player.lives} lives left.
+      `,
+    });
+    if (!player.isAlive()) {
+      await this.interaction.followUp({
+        content: `<@${player.id}> has been ELIMINATED and their torch has been snuffed. https://tenor.com/bExpm.gif`,
+      });
+
+      Game.tribalCouncilState = TribalCouncilState.NotStarted;
+      Game.tribalCouncil = null;
+
+      //TODO CHECK IF FINAL TRIBAL SHOULD START
+
+      return await this.interaction.followUp({
+        content: `
+          The tribal council has ended.
+        `,
+      });
+    }
   }
 }
 
