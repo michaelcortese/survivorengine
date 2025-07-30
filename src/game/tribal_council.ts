@@ -2,16 +2,25 @@ import { Game, GameState, TribalCouncilState } from "./game";
 import Player from "./player";
 import { ChatInputCommandInteraction, MessageFlags } from "discord.js";
 
+enum TribalCouncilType {
+  SINGLE,
+  DOUBLE,
+  FINAL,
+}
+
 class TribalCouncil {
   interaction: ChatInputCommandInteraction;
-  isDouble: boolean;
+  tribalCouncilType: TribalCouncilType;
   votesArray: Player[];
   tiedPlayers: Player[];
   leader: Player | undefined;
 
-  constructor(interaction: ChatInputCommandInteraction, isDouble: boolean) {
+  constructor(
+    interaction: ChatInputCommandInteraction,
+    tribalCouncilType: TribalCouncilType,
+  ) {
     this.interaction = interaction;
-    this.isDouble = isDouble;
+    this.tribalCouncilType = tribalCouncilType;
     this.votesArray = [];
     this.tiedPlayers = [];
     this.leader =
@@ -244,4 +253,4 @@ class TribalCouncil {
   }
 }
 
-export default TribalCouncil;
+export { TribalCouncil, TribalCouncilType };

@@ -1,7 +1,7 @@
 import Deck from "./deck";
 import Player from "./player";
 import Card from "./card";
-import TribalCouncil from "./tribal_council";
+import { TribalCouncil } from "./tribal_council";
 
 import {
   ChatInputCommandInteraction,
