@@ -2,16 +2,14 @@
 ## in typescript with Discord.js
 
 ## TODO:
+- [ ] Immunity Idols
+- [ ] FINAL TRIBAL
+- [ ] Implement double elim tribal council
 - [ ] Switch to using card enums for error validation rather than string literals
-- [ ] Implement tribal council (yikes!)
 - [ ] Refactor centralized config
-- [x] Unique query parameters for duplicate card images (discord will refuse to render image embeds with the same url)
 - [ ] Reset game command
 - [ ] FIX PROPORTIONS Tribal council cards and leader (equal distribution)
-- [x] See distance between tribal council cards
 - [ ] Camp raid (steal next draw)
-- [x] Add card descriptions
 - [ ] Force discard after getting sorry-for-you'd
-- [ ] REWARD CHALLENGE
+- [ ] REWARD CHALLENGE custom command
 - [ ] Inheritance functionality
-- [ ] Immunity Idols
