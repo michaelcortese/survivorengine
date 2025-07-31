@@ -1,6 +1,7 @@
 import { Game, GameState, TribalCouncilState } from "./game";
 import Player from "./player";
 import { ChatInputCommandInteraction, MessageFlags } from "discord.js";
+import { cards } from "./cardlist.json";
 
 enum TribalCouncilType {
   SINGLE,
@@ -34,7 +35,10 @@ class TribalCouncil {
     }
     await this.interaction.deferReply();
     await this.interaction.editReply({
-      content: `Welcome to Tribal Council. Tonight, one of you will be voted out of the tribe. <@${this.leader?.id}> is your tribal council leader for tonight's vote. You have 8 minutes (30 seconds for testing lololol) to discuss your vote before we get to the voting.`,
+      content: `<@${this.leader?.id}> has drawn the Tribal Council card! Tribal council will begin with <@${this.leader?.id}> as the leader unless otherwise changed. https://i.imgur.com/DG0IZxh.png https://media3.giphy.com/media/v1.Y2lkPTc5MGI3NjExYWY2cjZ6MXVmbTM4cWthaHhjcXZkMGE1djRpamhoNncxcnZ5aXJ3OCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/3ohs85atuPLr4K5rcQ/giphy.gif`,
+    });
+    await this.interaction.followUp({
+      content: `Welcome to Tribal Council. Tonight, one of you will be voted out of the tribe. <@${this.leader?.id}> is your tribal council leader for tonight's vote. You have 8 minutes (30 seconds for testing) to discuss your vote before we get to the voting.`,
     });
     // wait for 30 seconds
     await new Promise((resolve) => setTimeout(resolve, 30 * 1000));
