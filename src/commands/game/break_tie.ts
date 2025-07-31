@@ -16,6 +16,12 @@ export default {
     .setName("break_tie")
     .setDescription(
       "TRIBAL COUNCIL LEADER ONLY: Break the tie in the tribal council.",
+    )
+    .addUserOption((option) =>
+      option
+        .setName("player")
+        .setDescription("The player to eliminate")
+        .setRequired(true),
     ),
   async execute(interaction: ChatInputCommandInteraction) {
     const result = Game.checkForError(
