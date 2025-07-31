@@ -68,13 +68,7 @@ class TribalCouncil {
           //   this.leader = player;
           // }
         }
-        Game.tribalCouncilState = TribalCouncilState.NotStarted;
-        Game.tribalCouncil = null;
-        return await this.interaction.followUp({
-          content: `
-            The tribal council has ended.
-          `,
-        });
+        this.cleanup();
       }
     } else {
       // Handle tie case
@@ -242,18 +236,22 @@ class TribalCouncil {
       await this.interaction.followUp({
         content: `<@${player.id}> has been ELIMINATED and their torch has been snuffed. https://tenor.com/bExpm.gif`,
       });
-
-      Game.tribalCouncilState = TribalCouncilState.NotStarted;
-      Game.tribalCouncil = null;
-
-      //TODO CHECK IF FINAL TRIBAL SHOULD START
-
-      return await this.interaction.followUp({
-        content: `
-          The tribal council has ended.
-        `,
-      });
     }
+    this.cleanup();
+  }
+
+  async cleanup() {
+    // TODO check to start final tribal council
+    Game.tribalCouncilState = TribalCouncilState.NotStarted;
+    Game.tribalCouncil = null;
+    for (const player of Game.players) {
+      player.votes = 0;
+    }
+    return await this.interaction.followUp({
+      content: `
+        The tribal council has ended.
+      `,
+    });
   }
 }
 
