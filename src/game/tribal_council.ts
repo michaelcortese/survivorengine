@@ -83,6 +83,16 @@ class TribalCouncil {
     }
   }
 
+  async initFinal() {
+    await this.interaction.followUp({
+      content: `
+        The final tribal council has begun! The leader is <@${this.leader?.id}>.\n
+        Jury members, use "/final_vote @player" to cast your vote.
+      `,
+    });
+    this.tribalCouncilType = TribalCouncilType.FINAL;
+  }
+
   castVote(player: Player) {
     this.votesArray.push(player);
   }
