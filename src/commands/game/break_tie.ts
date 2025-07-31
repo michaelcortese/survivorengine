@@ -59,9 +59,5 @@ export default {
       });
     }
     return await Game.tribalCouncil.breakTie(targetPlayer);
-    await interaction.reply({
-      content: `An unexpected error occurred.`,
-      flags: MessageFlags.Ephemeral,
-    });
   },
 };
