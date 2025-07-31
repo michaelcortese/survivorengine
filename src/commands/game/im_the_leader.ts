@@ -4,6 +4,7 @@ import {
   MessageFlags,
 } from "discord.js";
 import { Game, TribalCouncilState } from "../../game/game";
+import { TribalCouncilType } from "../../game/tribal_council";
 const HAS_TARGET = false;
 const REQUIRED_CARD = "Tribal Advantage: I'm the Leader Now";
 const INTERUPTABLE = false;
@@ -48,6 +49,12 @@ export default {
       });
     }
     if (Game.tribalCouncil?.leader) {
+      if (Game.tribalCouncil.tribalCouncilType === TribalCouncilType.FINAL) {
+        return interaction.reply({
+          content: "Unable to play card during final Tribal Council.",
+          flags: MessageFlags.Ephemeral,
+        });
+      }
       let oldLeaderId = Game.tribalCouncil.leader.id;
       Game.tribalCouncil.leader = player;
       return interaction.reply({
