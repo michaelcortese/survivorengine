@@ -28,9 +28,9 @@ class Deck {
       const card = new Card(
         `Inheritance: ${player.username}`,
         null,
+        null,
         "https://i.imgur.com/DG0IZxh.png",
         undefined,
-        tribalVotes,
         player,
       );
       this.cards.push(card);
@@ -46,8 +46,8 @@ class Deck {
       const card = new Card(
         `Tribal Council`,
         null,
+        null,
         "https://i.imgur.com/DG0IZxh.png",
-        undefined,
         1,
         undefined,
       );
