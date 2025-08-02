@@ -14,7 +14,19 @@ const STOPPING_INTERACTION = false;
 export default {
   data: new SlashCommandBuilder()
     .setName("draw")
-    .setDescription("Draw a card from the deck"),
+    .setDescription("Draw a card from the deck")
+    .addStringOption((option) =>
+      option
+        .setName("tribal_type")
+        .setDescription(
+          "Type of tribal council if Tribal Council card is drawn",
+        )
+        .addChoices(
+          { name: "Single Elimination", value: "single" },
+          { name: "Double Elimination", value: "double" },
+        )
+        .setRequired(false),
+    ),
   async execute(interaction: ChatInputCommandInteraction) {
     const result = Game.checkForError(
       interaction,
@@ -38,10 +50,16 @@ export default {
     if (card.getName() === "Tribal Council") {
       // Card drawn was tribal council, tell game
       Game.tribalCouncilState = TribalCouncilState.Discussion;
-      // TODO add enum property for card
-      Game.setTribalCouncil(
-        new TribalCouncil(interaction, TribalCouncilType.SINGLE),
-      );
+
+      // Determine tribal council type from option or default to single
+      const tribalType =
+        interaction.options.getString("tribal_type") || "single";
+      const tribalCouncilType =
+        tribalType === "double"
+          ? TribalCouncilType.DOUBLE
+          : TribalCouncilType.SINGLE;
+
+      Game.setTribalCouncil(new TribalCouncil(interaction, tribalCouncilType));
       await Game.tribalCouncil?.init();
       return;
     }
