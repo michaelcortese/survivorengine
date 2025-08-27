@@ -7,6 +7,7 @@ class Player {
   public lives: number;
   public votes: number;
   public isActive: boolean;
+  public campRaid?: Player;
 
   constructor(id: string, username: string) {
     this.id = id; // The ID of the user

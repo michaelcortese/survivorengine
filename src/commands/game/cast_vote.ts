@@ -1,4 +1,4 @@
-import TribalCouncil from "../../game/tribal_council";
+import { TribalCouncil } from "../../game/tribal_council";
 import {
   SlashCommandBuilder,
   ChatInputCommandInteraction,
