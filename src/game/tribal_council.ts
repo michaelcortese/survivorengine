@@ -9,6 +9,9 @@ enum TribalCouncilType {
   FINAL,
 }
 
+let singleImage = "https://imgur.com/MPRxVdV";
+let doubleImage = "https://i.imgur.com/jdv8TpI.png";
+
 class TribalCouncil {
   interaction: ChatInputCommandInteraction;
   tribalCouncilType: TribalCouncilType;
@@ -44,7 +47,7 @@ class TribalCouncil {
     }
     await this.interaction.deferReply();
     await this.interaction.editReply({
-      content: `<@${this.leader?.id}> has drawn the Tribal Council card! Tribal council will begin with <@${this.leader?.id}> as the leader unless otherwise changed. https://i.imgur.com/DG0IZxh.png https://media3.giphy.com/media/v1.Y2lkPTc5MGI3NjExYWY2cjZ6MXVmbTM4cWthaHhjcXZkMGE1djRpamhoNncxcnZ5aXJ3OCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/3ohs85atuPLr4K5rcQ/giphy.gif`,
+      content: `<@${this.leader?.id}> has drawn the Tribal Council card! Tribal council will begin with <@${this.leader?.id}> as the leader unless otherwise changed. ${this.tribalCouncilType === TribalCouncilType.SINGLE ? singleImage : doubleImage}`,
     });
     await this.interaction.followUp({
       content: `Welcome to Tribal Council. Tonight, one of you will be voted out of the tribe. <@${this.leader?.id}> is your tribal council leader for tonight's vote. You have 8 minutes (30 seconds for testing) to discuss your vote before we get to the voting.`,
@@ -87,13 +90,13 @@ class TribalCouncil {
         tieMessage =
           `The vote was a tie between ${this.tiedPlayers.map((p) => `<@${p.id}>`).join(", ")}!\n` +
           `As the tribal council leader, <@${this.leader?.id}> must break the tie.\n` +
-          `<@${this.leader?.id}>, use "/break_tie player1:@player" to select the player to eliminate.`;
+          `<@${this.leader?.id}>, use "/break_tie @player" to select the player to eliminate.`;
       } else if (this.tribalCouncilType === TribalCouncilType.DOUBLE) {
         if (this.tiedPlayers.length >= 3) {
           tieMessage =
             `The vote was a tie between ${this.tiedPlayers.map((p) => `<@${p.id}>`).join(", ")}!\n` +
             `As the tribal council leader, <@${this.leader?.id}> must break the tie.\n` +
-            `<@${this.leader?.id}>, use "/break_tie player1:@player player2:@player" to select the 2 players to eliminate.`;
+            `<@${this.leader?.id}>, use "/break_tie @player @player2" to select the 2 players to eliminate.`;
         } else {
           // This shouldn't happen in double elim readVotes, but handle gracefully
           tieMessage = `Unexpected tie scenario in double elimination. Leader must decide.`;
@@ -171,30 +174,64 @@ class TribalCouncil {
       });
       await new Promise((resolve) => setTimeout(resolve, 3 * 1000));
 
-      // Get all alive players as tied players
+      // Determine which players are immune (protected by active, non-nullified idols)
+      const activeProtections = this.idolProtections.filter((protection) => {
+        return !this.idolNullifications.some(
+          (nullification) =>
+            nullification.originalIdolPlayer === protection.playedBy &&
+            nullification.originalProtectedPlayer ===
+              protection.protectedPlayer,
+        );
+      });
+      const immunePlayers = activeProtections.map(
+        (p) => p.protectedPlayer,
+      );
       const allAlivePlayers = Game.getAlivePlayers();
-      this.tiedPlayers = allAlivePlayers;
+      const nonImmuneAlivePlayers = allAlivePlayers.filter(
+        (p) => !immunePlayers.includes(p),
+      );
+
+      // If there is at least one non-immune player, only they are eligible for the tie.
+      // If EVERY remaining player is immune, the immunity exclusion does not apply.
+      const eligiblePlayers =
+        nonImmuneAlivePlayers.length > 0
+          ? nonImmuneAlivePlayers
+          : allAlivePlayers;
+
+      this.tiedPlayers = eligiblePlayers;
 
       let tieMessage = "";
+      const basePrefix =
+        nonImmuneAlivePlayers.length > 0
+          ? `All votes targeted immune players. Only non-immune players are eligible: ${eligiblePlayers
+              .map((p) => `<@${p.id}>`)
+              .join(", ")}\n`
+          : `All players are immune this round; immunity exclusion is lifted. Eligible players: ${eligiblePlayers
+              .map((p) => `<@${p.id}>`)
+              .join(", ")}\n`;
+
       if (this.tribalCouncilType === TribalCouncilType.SINGLE) {
         tieMessage =
+          basePrefix +
           `As the tribal council leader, <@${this.leader?.id}> must break the tie.\n` +
           `<@${this.leader?.id}>, use "/break_tie player1:@player" to select the player to eliminate.`;
       } else if (this.tribalCouncilType === TribalCouncilType.DOUBLE) {
         // Check if eliminating 2 would leave only 1 player
-        if (allAlivePlayers.length <= 3) {
+        if (eligiblePlayers.length <= 3) {
           tieMessage =
+            basePrefix +
             `Eliminating 2 players would end the game. As the tribal council leader, <@${this.leader?.id}> must choose 1 player to eliminate.\n` +
             `<@${this.leader?.id}>, use "/break_tie player1:@player" to select the player to eliminate.`;
         } else {
           tieMessage =
+            basePrefix +
             `As the tribal council leader, <@${this.leader?.id}> must break the tie.\n` +
             `<@${this.leader?.id}>, use "/break_tie player1:@player player2:@player" to select the 2 players to eliminate.`;
         }
       }
 
       await this.interaction.followUp({ content: tieMessage });
-      return { tie: true, players: allAlivePlayers };
+      return { tie: true, players: eligiblePlayers };
     }
 
     // Get sorted vote counts (highest to lowest)
