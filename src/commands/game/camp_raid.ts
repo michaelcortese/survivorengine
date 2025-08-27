@@ -84,11 +84,15 @@ export default {
     //   await new Promise((resolve) => setTimeout(resolve, 100)); // Check more frequently but update less
     // }
 
-    await interaction.editReply({
-      content: `<@${player.id}> successfully raided <@${targetPlayer.id}>'s camp! Their next draw will given to <@${player.id}>!!!`,
-    });
+
 
     //Execute the raid
     targetPlayer.campRaid = player;
+
+    return await interaction.reply({
+      content: `<@${player.id}> successfully raided <@${targetPlayer.id}>'s camp! Their next draw will given to <@${player.id}>!!!`,
+    });
+
+
   },
 };

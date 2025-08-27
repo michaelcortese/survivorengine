@@ -44,8 +44,7 @@ export default {
     // if (Game.interruption.sender && Game.interruption.sender.id === player.id) {
     //     return interaction.reply({content: 'You can\'t stop your own interaction!', flags: MessageFlags.Ephemeral});
     // }
-    // //Remove the Sorry For You card from the player's hand
-    // player.removeCard('Sorry For You');
+
     let targetId = Game.interruption.sender?.id;
     //Game.stopInterruption(); // Replace the manual assignment
     Game.interruption.stopped = true; // Mark the interruption as stopped
