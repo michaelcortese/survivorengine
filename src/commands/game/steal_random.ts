@@ -100,7 +100,7 @@ export default {
     player.hand.push(cardToSteal);
 
     await interaction.followUp({
-      content: `You successfully stole a ${cardToSteal.getName()} from <@${targetPlayer.id}>!`,
+      content: `You successfully stole *${cardToSteal.getName()}* from <@${targetPlayer.id}>!`,
       flags: MessageFlags.Ephemeral,
     });
   },
