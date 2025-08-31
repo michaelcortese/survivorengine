@@ -78,7 +78,7 @@ export default {
             content: `Steal attempt was interrupted with ${lastDisplayedSecond} seconds remaining`,
           });
 
-          await interaction.reply({
+          await interaction.followUp({
             content: `You drew a ${card.getName()} (${card.getImage()}).`,
             flags: MessageFlags.Ephemeral,
           });
