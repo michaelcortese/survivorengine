@@ -76,6 +76,14 @@ class TribalCouncil {
             await this.interaction.followUp({
               content: `<@${player.id}> has been ELIMINATED and their torch has been snuffed. https://tenor.com/bExpm.gif`,
             });
+            // Check if only 2 players remain alive
+            const alivePlayers = Game.getAlivePlayers();
+            if (alivePlayers.length === 2) {
+              Game.finalTribalLeader = player;
+              await this.interaction.followUp({
+                content: `STOP PLAYING AND RUN THIS! <@${player.id}> is the Final Tribal Council Leader. Please run /final_tribal_council to begin the final vote.`,
+              });
+            }
           }
         }
         this.cleanup();

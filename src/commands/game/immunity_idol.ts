@@ -109,7 +109,6 @@ export default {
 
     await interaction.reply({
       content: `<@${player.id}> has played an **Immunity Idol** to protect ${targetText}! Any votes cast for ${targetText} will not count.`,
-      flags: MessageFlags.Ephemeral,
     });
   },
 };

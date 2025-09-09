@@ -32,6 +32,7 @@ enum TribalCouncilState {
   Immunity,
   Nullify,
   Reading,
+  FINAL,
 }
 
 interface GameState {
