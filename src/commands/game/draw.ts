@@ -8,7 +8,7 @@ import {
 import { Game, TribalCouncilState } from "../../game/game";
 const HAS_TARGET = false;
 const REQUIRED_CARD = null;
-const INTERUPTABLE = true;
+const INTERRUPTIBLE = true;
 const STOPPING_INTERACTION = false;
 
 export default {
@@ -20,7 +20,7 @@ export default {
       interaction,
       HAS_TARGET,
       REQUIRED_CARD,
-      INTERUPTABLE,
+      INTERRUPTIBLE,
       STOPPING_INTERACTION,
     );
     if ("error" in result) {
@@ -42,6 +42,7 @@ export default {
 
       // Determine tribal council type from option or default to single
       const tribalType = card.tribalValue;
+      // messy, so why do we even need this?
       const tribalCouncilType =
         tribalType === 2 ? TribalCouncilType.DOUBLE : TribalCouncilType.SINGLE;
 
@@ -52,7 +53,6 @@ export default {
 
     // check for camp raid
     if (player.campRaid) {
-      
 
       // Respond immediately to Discord (public message)
       let msg = await interaction.reply({

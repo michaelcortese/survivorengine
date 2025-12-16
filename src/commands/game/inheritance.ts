@@ -3,11 +3,11 @@ import {
   ChatInputCommandInteraction,
   MessageFlags,
 } from "discord.js";
-import { Game, TribalCouncilState } from "../../game/game";
+import { Game } from "../../game/game";
 
 const HAS_TARGET = true;
 const REQUIRED_CARD = null;
-const INTERRUPTABLE = false;
+const INTERRUPTIBLE = false;
 const STOPPING_INTERACTION = false;
 const CAN_BE_PLAYED_TRIBAL_COUNCIL = true;
 const ONLY_DURING_TRIBAL_COUNCIL = false;
@@ -28,7 +28,7 @@ export default {
       interaction,
       HAS_TARGET,
       REQUIRED_CARD,
-      INTERRUPTABLE,
+      INTERRUPTIBLE,
       STOPPING_INTERACTION,
       CAN_BE_PLAYED_TRIBAL_COUNCIL,
       ONLY_DURING_TRIBAL_COUNCIL,
@@ -51,7 +51,7 @@ export default {
 
     let inheritance_name = `Inheritance: ${targetPlayer.username}`;
     if (!player.hasCard(inheritance_name)) {
-       return interaction.reply({
+      return interaction.reply({
         content: "You dont have the card",
         flags: MessageFlags.Ephemeral,
       });
@@ -65,10 +65,10 @@ export default {
         flags: MessageFlags.Ephemeral,
       });
     }
-    
+
 
     // checks passed, perform hand transfer logic
-    let cardNames = [];
+    let cardNames: String[] = [];
     targetPlayer.hand.forEach((card) => {
       player.hand.push(card);
       targetPlayer.removeCard(card.name);
@@ -80,7 +80,7 @@ export default {
     });
 
     return interaction.reply({
-      content: `${player.name} inherited ${cardNames.length} from ${targetPlayer.name}`
+      content: `${player.username} inherited ${cardNames.length} from ${targetPlayer.username}`
     });
   }
 }

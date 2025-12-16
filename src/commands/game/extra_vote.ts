@@ -8,7 +8,7 @@ import { Game } from "../../game/game";
 
 const HAS_TARGET = false;
 const REQUIRED_CARD = "Extra Vote";
-const INTERRUPTABLE = false;
+const INTERRUPTIBLE = false;
 const STOPPING_INTERACTION = false;
 const CAN_PLAY_DURING_TRIBAL_COUNCIL = true;
 const ONLY_DURING_TRIBAL_COUNCIL = true;
@@ -24,7 +24,7 @@ export default {
       interaction,
       HAS_TARGET,
       REQUIRED_CARD,
-      INTERRUPTABLE,
+      INTERRUPTIBLE,
       STOPPING_INTERACTION,
       CAN_PLAY_DURING_TRIBAL_COUNCIL,
       ONLY_DURING_TRIBAL_COUNCIL,

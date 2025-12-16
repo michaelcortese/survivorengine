@@ -7,7 +7,7 @@ import { Game } from "../../game/game";
 
 const HAS_TARGET = true;
 const REQUIRED_CARD = "Camp Raid";
-const INTERRUPTABLE = false;
+const INTERRUPTIBLE = false;
 const STOPPING_INTERACTION = false;
 const CAN_PLAY_DURING_TRIBAL_COUNCIL = false;
 export default {
@@ -25,7 +25,7 @@ export default {
       interaction,
       HAS_TARGET,
       REQUIRED_CARD,
-      INTERRUPTABLE,
+      INTERRUPTIBLE,
       STOPPING_INTERACTION,
       CAN_PLAY_DURING_TRIBAL_COUNCIL,
       false,

@@ -1,7 +1,7 @@
-import { Game, GameState, TribalCouncilState } from "./game";
+import { Game, TribalCouncilState } from "./game";
 import Player from "./player";
-import { ChatInputCommandInteraction, MessageFlags } from "discord.js";
-import { cards } from "./cardlist.json";
+import { ChatInputCommandInteraction } from "discord.js";
+// import { cards } from "./cardlist.json";
 
 enum TribalCouncilType {
   SINGLE,
@@ -188,7 +188,7 @@ class TribalCouncil {
           (nullification) =>
             nullification.originalIdolPlayer === protection.playedBy &&
             nullification.originalProtectedPlayer ===
-              protection.protectedPlayer,
+            protection.protectedPlayer,
         );
       });
       const immunePlayers = activeProtections.map(
@@ -212,11 +212,11 @@ class TribalCouncil {
       const basePrefix =
         nonImmuneAlivePlayers.length > 0
           ? `All votes targeted immune players. Only non-immune players are eligible: ${eligiblePlayers
-              .map((p) => `<@${p.id}>`)
-              .join(", ")}\n`
+            .map((p) => `<@${p.id}>`)
+            .join(", ")}\n`
           : `All players are immune this round; immunity exclusion is lifted. Eligible players: ${eligiblePlayers
-              .map((p) => `<@${p.id}>`)
-              .join(", ")}\n`;
+            .map((p) => `<@${p.id}>`)
+            .join(", ")}\n`;
 
       if (this.tribalCouncilType === TribalCouncilType.SINGLE) {
         tieMessage =

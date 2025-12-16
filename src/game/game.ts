@@ -15,7 +15,7 @@ const CARDS_PER_PLAYER = 3;
 const INTERRUPT_WAIT_TIME = 1000 * 15; // 15 seconds
 
 /**
- * Interface for any kind of interaction that can be interupted with a "Sorry for You" card
+ * Interface for any kind of interaction that can be interrupted with a "Sorry for You" card
  * TODO: see if we can make this work with idol nullifier
  */
 interface Interruption {
@@ -58,7 +58,7 @@ interface GameState {
     interaction: ChatInputCommandInteraction,
     hasTarget: boolean,
     requiredCard: string | null,
-    interruptable: boolean,
+    interruptible: boolean,
     stoppingInteraction?: boolean,
     canPlayDuringTribalCouncil?: boolean,
     onlyDuringTribalCouncil?: boolean,
@@ -167,7 +167,7 @@ const Game: GameState = {
     interaction,
     hasTarget,
     requiredCard,
-    interruptable,
+    interruptible,
     stoppingInteraction = false,
     canPlayDuringTribalCouncil = false,
     onlyDuringTribalCouncil = false,
@@ -239,7 +239,7 @@ const Game: GameState = {
       };
     }
 
-    if (interruptable && Game.interruption.active) {
+    if (interruptible && Game.interruption.active) {
       return {
         error: {
           content:

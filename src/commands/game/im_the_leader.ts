@@ -7,7 +7,7 @@ import { Game, TribalCouncilState } from "../../game/game";
 import { TribalCouncilType } from "../../game/tribal_council";
 const HAS_TARGET = false;
 const REQUIRED_CARD = "Tribal Advantage: I'm the Leader Now";
-const INTERUPTABLE = false;
+const INTERRUPTIBLE = false;
 const STOPPING_INTERACTION = false;
 const CAN_BE_PLAYED_TRIBAL_COUNCIL = true;
 const ONLY_DURING_TRIBAL_COUNCIL = true;
@@ -23,7 +23,7 @@ export default {
       interaction,
       HAS_TARGET,
       REQUIRED_CARD,
-      INTERUPTABLE,
+      INTERRUPTIBLE,
       STOPPING_INTERACTION,
       CAN_BE_PLAYED_TRIBAL_COUNCIL,
       ONLY_DURING_TRIBAL_COUNCIL,

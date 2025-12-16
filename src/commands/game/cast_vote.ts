@@ -7,7 +7,7 @@ import {
 import { Game, TribalCouncilState } from "../../game/game";
 const HAS_TARGET = true;
 const REQUIRED_CARD = null;
-const INTERUPTABLE = false;
+const INTERRUPTIBLE = false;
 const STOPPING_INTERACTION = false;
 const CAN_BE_PLAYED_TRIBAL_COUNCIL = true;
 
@@ -26,7 +26,7 @@ export default {
       interaction,
       HAS_TARGET,
       REQUIRED_CARD,
-      INTERUPTABLE,
+      INTERRUPTIBLE,
       STOPPING_INTERACTION,
       CAN_BE_PLAYED_TRIBAL_COUNCIL,
     );

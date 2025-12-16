@@ -7,7 +7,7 @@ import { Game, TribalCouncilState } from "../../game/game";
 
 const HAS_TARGET = true;
 const REQUIRED_CARD = "Idol Nullifier";
-const INTERRUPTABLE = false;
+const INTERRUPTIBLE = false;
 const STOPPING_INTERACTION = true;
 const CAN_PLAY_DURING_TRIBAL_COUNCIL = true;
 const ONLY_DURING_TRIBAL_COUNCIL = true;
@@ -40,7 +40,7 @@ export default {
       interaction,
       false, // We'll handle target manually
       null, // Don't check for card yet, we'll do it after target validation
-      INTERRUPTABLE,
+      INTERRUPTIBLE,
       STOPPING_INTERACTION,
       CAN_PLAY_DURING_TRIBAL_COUNCIL,
       ONLY_DURING_TRIBAL_COUNCIL,

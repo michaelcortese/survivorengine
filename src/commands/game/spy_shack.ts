@@ -12,7 +12,7 @@ import { Game } from "../../game/game";
 
 const HAS_TARGET = true;
 const REQUIRED_CARD = "The Spy Shack";
-const INTERRUPTABLE = true;
+const INTERRUPTIBLE = true;
 const STOPPING_INTERACTION = false;
 
 export default {
@@ -30,7 +30,7 @@ export default {
       interaction,
       HAS_TARGET,
       REQUIRED_CARD,
-      INTERRUPTABLE,
+      INTERRUPTIBLE,
       STOPPING_INTERACTION,
     );
     if ("error" in result) {

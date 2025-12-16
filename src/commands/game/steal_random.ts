@@ -7,7 +7,7 @@ import { Game } from "../../game/game";
 
 const HAS_TARGET = true;
 const REQUIRED_CARD = null;
-const INTERRUPTABLE = true;
+const INTERRUPTIBLE = true;
 
 export default {
   data: new SlashCommandBuilder()
@@ -24,7 +24,7 @@ export default {
       interaction,
       HAS_TARGET,
       REQUIRED_CARD,
-      INTERRUPTABLE,
+      INTERRUPTIBLE,
       false,
     );
     if ("error" in result) {

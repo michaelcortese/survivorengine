@@ -12,7 +12,7 @@ import { Game } from "../../game/game";
 
 const HAS_TARGET = false;
 const REQUIRED_CARD = "Sorry for You";
-const INTERRUPTABLE = false;
+const INTERRUPTIBLE = false;
 const STOPPING_INTERACTION = true;
 
 export default {
@@ -24,7 +24,7 @@ export default {
       interaction,
       HAS_TARGET,
       REQUIRED_CARD,
-      INTERRUPTABLE,
+      INTERRUPTIBLE,
       STOPPING_INTERACTION,
     );
 
