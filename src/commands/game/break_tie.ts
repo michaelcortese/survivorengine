@@ -4,7 +4,7 @@ import {
   MessageFlags,
 } from "discord.js";
 import { Game, TribalCouncilState } from "../../game/game";
-const HAS_TARGET = true;
+const HAS_TARGET = false;
 const REQUIRED_CARD = null;
 const INTERRUPTIBLE = false;
 const STOPPING_INTERACTION = false;
@@ -34,7 +34,7 @@ export default {
   async execute(interaction: ChatInputCommandInteraction) {
     const result = Game.checkForError(
       interaction,
-      false, // We'll handle targets manually
+      HAS_TARGET,
       REQUIRED_CARD,
       INTERRUPTIBLE,
       STOPPING_INTERACTION,
