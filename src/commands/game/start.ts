@@ -72,14 +72,14 @@ export default {
     }
 
     Game.startGame(players);
-    await interaction.reply("Game started!");
-    await interaction.followUp(
-      Game.players
-        .map(
-          (player) =>
-            `${String(player.username)}: ${player.hand.map((card) => card.getName()).join(", ")}`,
-        )
-        .join("\n"),
-    );
+    await interaction.reply("Game started! " + "<@" + Game.players[Game.currentPlayerIndex].id + "> is going first!");
+    // await interaction.followUp(
+    //   Game.players
+    //     .map(
+    //       (player) =>
+    //         `${String(player.username)}: ${player.hand.map((card) => card.getName()).join(", ")}`,
+    //     )
+    //     .join("\n"),
+    // );
   },
 };
