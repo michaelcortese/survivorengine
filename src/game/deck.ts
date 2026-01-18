@@ -2,10 +2,25 @@ import Card from "./card";
 import { cards } from "./cardlist.json";
 import Player from "./player";
 
+interface DeckConfig {
+  doubleTribalsRatio: number; // 0.0 to 1.0 (e.g., 0.5 = 50% double, 50% single)
+}
+
 class Deck {
   private cards: Card[];
-  constructor() {
+  private highValueCardNames = [
+    "Immunity Idol",
+    "Idol Nullifier",
+    "Extra Vote",
+    "Tribal Advantage: Control the Vote",
+    "Tribal Advantage: Goodwill Gamble",
+    "Tribal Advantage: I'm the Leader Now",
+  ];
+  private config: DeckConfig;
+
+  constructor(config: DeckConfig = { doubleTribalsRatio: 0.5 }) {
     this.cards = [];
+    this.config = config;
     for (const cardData of cards) {
       const card = new Card(
         cardData.name,
@@ -39,10 +54,25 @@ class Deck {
 
   addAndDisperseTribalCouncilCards(playerCount: number) {
     const deckSize = this.cards.length;
-    const segmentSize = Math.floor(deckSize / playerCount);
-    const randomRange = Math.min(5, Math.floor(segmentSize / 3)); // Max 5 cards or 1/3 of segment size
+    
+    // Determine how many double vs single tribals to add
+    const totalTribalCards = playerCount - 1; // One less than player count to ensure final 3
+    const doubleTribalsCount = Math.round(totalTribalCards * this.config.doubleTribalsRatio);
+    const singleTribalsCount = totalTribalCards - doubleTribalsCount;
+    
+    const tribalCards: Array<{ name: string; type: "single" | "double" }> = [];
+    for (let i = 0; i < doubleTribalsCount; i++) {
+      tribalCards.push({ name: "Tribal Council", type: "double" });
+    }
+    for (let i = 0; i < singleTribalsCount; i++) {
+      tribalCards.push({ name: "Tribal Council", type: "single" });
+    }
+    
+    const segmentSize = Math.floor(deckSize / tribalCards.length);
+    const randomRange = Math.min(5, Math.floor(segmentSize / 3));
     const description = "";
-    for (let i = 0; i < playerCount; i++) {
+    
+    for (let i = 0; i < tribalCards.length; i++) {
       const card = new Card(
         `Tribal Council`,
         description,
@@ -72,9 +102,48 @@ class Deck {
   }
 
   shuffle() {
-    for (let i = this.cards.length - 1; i > 0; i--) {
+    // Separate high-value and regular cards
+    const highValueCards: Card[] = [];
+    const regularCards: Card[] = [];
+
+    for (const card of this.cards) {
+      if (this.highValueCardNames.includes(card.getName())) {
+        highValueCards.push(card);
+      } else {
+        regularCards.push(card);
+      }
+    }
+
+    // Shuffle regular cards
+    for (let i = regularCards.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
-      [this.cards[i], this.cards[j]] = [this.cards[j], this.cards[i]];
+      [regularCards[i], regularCards[j]] = [regularCards[j], regularCards[i]];
+    }
+
+    // Distribute high-value cards evenly throughout the deck
+    // This prevents clustering of multiple idols in early/late game
+    const segmentSize = Math.ceil(regularCards.length / (highValueCards.length + 1));
+    this.cards = [];
+
+    for (let i = 0; i < highValueCards.length; i++) {
+      // Add a segment of regular cards
+      const startIdx = i * segmentSize;
+      const endIdx = Math.min((i + 1) * segmentSize, regularCards.length);
+      this.cards.push(...regularCards.slice(startIdx, endIdx));
+
+      // Add a high-value card
+      this.cards.push(highValueCards[i]);
+    }
+
+    // Add any remaining regular cards at the end
+    if (this.cards.length < regularCards.length + highValueCards.length) {
+      const remaining = regularCards.length - this.cards.filter(c => 
+        !this.highValueCardNames.includes(c.getName())
+      ).length;
+      if (remaining > 0) {
+        const startIdx = highValueCards.length * segmentSize;
+        this.cards.push(...regularCards.slice(startIdx));
+      }
     }
   }
 
@@ -86,6 +155,14 @@ class Deck {
 
   getCardCount() {
     return this.cards.length;
+  }
+
+  setConfig(config: Partial<DeckConfig>) {
+    this.config = { ...this.config, ...config };
+  }
+
+  getConfig(): DeckConfig {
+    return this.config;
   }
 
   getDrawsUntilNextTribalCouncil(): number[] {
