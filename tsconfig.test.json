@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    // The base config sets rootDir to ./src for the build; this config deliberately reaches
+    // outside it to cover tests/ and the root *.config.ts files.
+    "rootDir": ".",
+    "types": ["node"]
+  },
+  "include": ["src/**/*", "tests/**/*", "*.config.ts"],
+  // `exclude` is INHERITED, and the base config excludes "tests" so the build's rootDir stays
+  // ./src. Without restating it here the `include` above matched nothing under tests/: this
+  // project reported zero test files, so `tsc -p tsconfig.test.json` typechecked none of them
+  // and type-aware linting had no project to attach them to.
+  "exclude": ["node_modules", "dist"]
+}

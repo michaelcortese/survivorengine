@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - name: Typecheck (src)
+        run: npm run typecheck
+      # Audit #63: vitest transpiles with esbuild, which strips types without checking them,
+      # so a test asserting on a renamed field passes silently. The whole point of branding
+      # PlayerId/CardUid is that a test mixing them up is a compile error.
+      - name: Typecheck (tests)
+        run: npm run typecheck:test
+      # The engine dependency rule, as a build failure rather than a paragraph in a doc.
+      # No discord.js, no node builtins, no clock, no Math.random anywhere under src/engine.
+      - name: Engine purity
+        run: npm run engine:purity
+      - name: Lint
+        run: npm run lint
+      - name: Format check
+        run: npm run format:check
+      - name: Test
+        run: npm run test

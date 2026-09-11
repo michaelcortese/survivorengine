@@ -1,20 +1,38 @@
 {
-  "name": "survivor",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "scripts": {
-    "dev": "tsx watch src/index.ts",
-    "start": "tsx src/index.ts",
-    "build": "tsc",
-    "format": "prettier --write \"**/*.{json,ts}\"",
-    "lint": "eslint . --ext ts --fix",
-    "deploy": "tsx src/deploy-commands.ts"
+  "name": "survivor-engine",
+  "version": "2.0.0",
+  "description": "A Discord bot implementation of the card game Survivor: The Tribe Has Spoken, for playing with friends over voice chat.",
+  "type": "module",
+  "engines": {
+    "node": ">=20.11"
   },
-  "keywords": [],
-  "author": "",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "dev": "tsx watch src/index.ts",
+    "deploy": "tsx src/deploy-commands.ts",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "typecheck:test": "tsc -p tsconfig.test.json",
+    "engine:purity": "bash scripts/check-engine-purity.sh",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write \"**/*.{json,ts,md}\"",
+    "format:check": "prettier --check \"**/*.{json,ts,md}\"",
+    "check": "npm run typecheck && npm run typecheck:test && npm run engine:purity && npm run lint && npm run test",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "discord",
+    "discord-bot",
+    "survivor",
+    "card-game",
+    "board-game"
+  ],
+  "author": "Michael Cortese",
   "license": "ISC",
-  "type": "commonjs",
   "dependencies": {
     "discord.js": "^14.21.0",
     "dotenv": "^17.2.0"
@@ -22,9 +40,13 @@
   "devDependencies": {
     "@eslint/js": "^9.31.0",
     "@types/node": "^24.1.0",
+    "@vitest/coverage-v8": "^5.0.0",
     "eslint": "^9.31.0",
-    "ts-node": "^10.9.2",
+    "eslint-config-prettier": "^10.0.1",
+    "prettier": "^3.4.2",
+    "tsx": "^4.19.2",
     "typescript": "^5.8.3",
-    "typescript-eslint": "^8.38.0"
+    "typescript-eslint": "^8.38.0",
+    "vitest": "^5.0.0"
   }
 }
