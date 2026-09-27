@@ -783,19 +783,17 @@ const COUNCIL_PROMPTS: WindowPrompts = {
 /**
  * The claim prompt.
  *
- * ADDRESSED TO NOBODY, deliberately. `waitingOn(pending)` returns an EMPTY list for an
- * inheritance window and that is correct engine behaviour: "anyone MIGHT hold the matching
- * Inheritance card, and which hands hold what is private — so the window names nobody
- * publicly." A prompt built from `waitingOnIds` therefore has no buttons at all, which is
- * exactly what happened before this: the render pipeline announced that a hand was on the table,
- * no component in the bot could claim it, and the council sat at its tally until the window
- * expired (`resolveEliminations` refuses to run while any window is open).
+ * ADDRESSED TO NOBODY, deliberately, and it gives nothing away. The engine opens this window
+ * whenever the matching Inheritance card is somewhere the table cannot see — in somebody's hand
+ * or face down in the draw pile — so the prompt appearing says nothing about whether anyone
+ * holds it, and `waitingOn(pending)` names nobody for the same reason.
  *
- * So the buttons are minted for `ANY_PLAYER` — the one other place in the bot a component
- * belongs to everybody. That leaks nothing, because the ENGINE is the gate at both ends:
- * `play_inheritance` needs a matching card in hand, and `decline_reaction` on an inheritance
- * window answers `not_a_participant` — "That prompt is not for you." — to anyone who does not
- * hold it. Printing a name here would be the leak.
+ * So the one button is minted for `ANY_PLAYER` — the one other place in the bot a component
+ * belongs to everybody — and the ENGINE is the gate: `play_inheritance` needs the matching card
+ * in hand, and anyone else is told privately that they do not hold it. There is deliberately NO
+ * "let it go" button: closing the window early would itself tell the table that somebody held
+ * the card and chose not to use it. A holder who does not want the hand lets the window run
+ * out, which looks exactly like nobody holding it at all.
  */
 function inheritancePrompt(
   session: GameSession,
@@ -804,7 +802,7 @@ function inheritancePrompt(
 ): Payload {
   const shared = session.uiContext(ANY_PLAYER);
   return {
-    content: `📜 Whoever holds the matching ${bold("Inheritance")} card may claim that whole hand now — the colour is in the message above. Nobody else can: the buttons answer only to the card.`,
+    content: `📜 Whoever holds the matching ${bold("Inheritance")} card may claim that whole hand now — the colour is in the message above. Nobody else can: the button answers only to the card.`,
     components: buttonRows(
       [
         button(
@@ -816,14 +814,6 @@ function inheritancePrompt(
             },
             label: ACTION_LABEL.play_inheritance,
             style: ButtonStyle.Primary,
-          },
-          config.discord,
-        ),
-        button(
-          {
-            parts: { ...shared, intent: "decline_reaction", args: [pendingId] },
-            label: "Let it go to the discard pile",
-            style: ButtonStyle.Secondary,
           },
           config.discord,
         ),
@@ -881,8 +871,14 @@ const openInheritance: ComponentHandler = async (ctx) => {
           ) ?? null);
   const uids = legal?.playableCardUids ?? [];
   if (pendingId === null || uids.length === 0) {
+    const stillOpen =
+      pendingId !== null &&
+      ctx.session.view().openPending.some((pending) => pending.id === pendingId);
+    // Said privately, and true of almost everyone who presses: the button is on a public prompt.
     await ctx.reply.fail(
-      refuse("pending_not_found", "that inheritance window is no longer claimable"),
+      stillOpen
+        ? "You do not hold the matching Inheritance card, so this hand is not yours to claim."
+        : refuse("pending_not_found", "that inheritance window is no longer claimable"),
     );
     return;
   }

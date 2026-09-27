@@ -851,7 +851,10 @@ function whyNothingToPlay(
   if (turn.playerId !== actor)
     return { code: "not_your_turn", message: "another player's turn" };
   if (turn.phase === "steal") {
-    return { code: "steal_step_not_done", message: "the steal step is not done" };
+    // During the steal step the only window that can be open is the steal's own take.
+    return view.openPending.some((pending) => pending.kind === "take")
+      ? { code: "steal_being_answered", message: "the steal is still being answered" }
+      : { code: "steal_step_not_done", message: "the steal step is not done" };
   }
   if (turn.cardPlayedThisTurn !== null) {
     return { code: "card_already_played_this_turn", message: "one card play per turn" };

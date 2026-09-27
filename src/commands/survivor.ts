@@ -57,6 +57,7 @@ import {
 } from "../discord/ui.js";
 import type { GameError, PlayerColor, PlayerId } from "../engine/types.js";
 import { ALL_PLAYER_COLORS, asPlayerId } from "../engine/types.js";
+import { describeCause, type Logger } from "../logger.js";
 import { saveExists } from "../persistence/store.js";
 
 // ---------------------------------------------------------------------------
@@ -364,6 +365,104 @@ async function host(ctx: CommandContext): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// /survivor remove
+// ---------------------------------------------------------------------------
+
+/**
+ * Take a player out of the game: the host's answer to somebody who has gone for good.
+ *
+ * Audit #24 asked for exactly this — "no way to remove, replace or drop a player mid-game" — and
+ * the engine has had `remove_player` all along, but nothing in the bot could reach it. It is
+ * destructive (the player's hand goes to the discard pile and they are NOT on the Jury), so, like
+ * `/survivor abandon`, it only ever posts a confirmation; the Confirm carries the flow tag
+ * `remove` and the player, and the engine decides whether the presser may do it.
+ */
+async function remove(ctx: CommandContext): Promise<void> {
+  const found = ctx.requireSession();
+  if (!found.ok) return ctx.reply.fail(found.error);
+  const session = found.value;
+  const target = asPlayerId(ctx.interaction.options.getUser("player", true).id);
+  const view = session.view();
+
+  if (ctx.actor !== view.hostId) {
+    return ctx.reply.fail(layerError("not_host", "only the host may remove a player"));
+  }
+  if (!session.hasPlayer(target)) {
+    return ctx.reply.fail(
+      layerError("target_not_in_game", "that player is not at this table"),
+    );
+  }
+
+  await ctx.reply.send({
+    content: [
+      `${bold(`Remove ${mention(target)} from this game?`)}`,
+      view.status === "lobby"
+        ? "They leave the lobby, and can join again."
+        : "They leave the table for good: their hand goes to the discard pile, they are not on the Jury, and turn order skips them.",
+    ].join("\n"),
+    components: [
+      confirmRow(
+        { ...session.uiContext(ctx.actor), args: ["remove", packPlayerArg(target)] },
+        { confirm: "Remove them", cancel: "Never mind" },
+        ctx.config.discord,
+      ),
+    ],
+  });
+}
+
+async function confirmRemove(ctx: ComponentContext): Promise<void> {
+  const raw = ctx.parsed.args[1] ?? "";
+  const target =
+    ctx.session
+      .view()
+      .players.find((player) => raw === player.id || raw === packPlayerArg(player.id))
+      ?.id ?? null;
+  if (target === null) {
+    await ctx.reply.disableSource();
+    await ctx.reply.fail(
+      layerError("target_not_in_game", "that player is not at this table"),
+    );
+    return;
+  }
+  const outcome = ctx.dispatch({ type: "remove_player", actor: ctx.actor, target });
+  if (!outcome.ok) {
+    await ctx.reply.disableSource();
+    await ctx.reply.fail(outcome.error);
+    return;
+  }
+  // The table is told by the public `player_removed` event; this only closes the question.
+  await ctx.reply.update({
+    content: `${mention(target)} has been removed from the game.`,
+    components: [],
+  });
+  await refreshLobbyCard(ctx.session, ctx.config, ctx.nowMs, ctx.log);
+}
+
+/**
+ * Re-render the lobby card wherever it is, after a lobby change made from somewhere other than
+ * its own buttons (`/castaways`, `/survivor remove`). A card that can no longer be edited is left
+ * alone: the next press on it re-renders it anyway.
+ */
+export async function refreshLobbyCard(
+  session: GameSession,
+  config: SurvivorConfig,
+  nowMs: number,
+  log: Logger,
+): Promise<void> {
+  const card = session.lobbyCard;
+  if (card === null || session.view().status !== "lobby") return;
+  const payload = lobbyPayload(session, config, nowMs);
+  try {
+    await card.edit({
+      embeds: payload.embeds ? [...payload.embeds] : [],
+      components: payload.components ? [...payload.components] : [],
+    });
+  } catch (cause) {
+    log.debug("could not re-render the lobby card", { cause: describeCause(cause) });
+  }
+}
+
+// ---------------------------------------------------------------------------
 // /survivor resume
 // ---------------------------------------------------------------------------
 
@@ -655,6 +754,16 @@ const survivor: Command = {
     )
     .addSubcommand((sub) =>
       sub
+        .setName("remove")
+        .setDescription(
+          "Take a player out of this game. Host only, with a confirmation.",
+        )
+        .addUserOption((option) =>
+          option.setName("player").setDescription("Who to remove").setRequired(true),
+        ),
+    )
+    .addSubcommand((sub) =>
+      sub
         .setName("resume")
         .setDescription("Bring back this channel's game after the bot restarted."),
     ),
@@ -670,13 +779,16 @@ const survivor: Command = {
       case "host":
         await host(ctx);
         return;
+      case "remove":
+        await remove(ctx);
+        return;
       case "resume":
         await resume(ctx);
         return;
       default:
         // Discord sends a string off the wire, not a member of a union.
         await ctx.reply.fail(
-          "I do not know that `/survivor` subcommand. Try `start`, `abandon`, `host` or `resume`.",
+          "I do not know that `/survivor` subcommand. Try `start`, `abandon`, `host`, `remove` or `resume`.",
         );
         return;
     }
@@ -688,6 +800,7 @@ const survivor: Command = {
     choose_color: pressColor,
     start_game: pressBegin,
     "uy:abandon": confirmAbandon,
+    "uy:remove": confirmRemove,
     // The two host actions a BUTTON cannot carry. `componentsForLegalActions()` mints one for
     // every legal action, and neither of these can be rebuilt from a custom_id: `abandon_game`
     // must go through a confirmation (audit #19/#24) and `transfer_host` needs a player the

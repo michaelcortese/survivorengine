@@ -56,7 +56,7 @@ import type {
   Result,
 } from "../engine/types.js";
 import type { Logger } from "../logger.js";
-import { lobbyPayload } from "./survivor.js";
+import { lobbyPayload, refreshLobbyCard } from "./survivor.js";
 
 /** `args[0]` of the form's submit, so it routes here and nowhere else. */
 const FLOW = "cst";
@@ -299,28 +299,6 @@ async function dropStalePortraits(
     if (name !== before[index] && !keep.has(index)) {
       await session.setPortrait(actor, index, null);
     }
-  }
-}
-
-/** Re-render the lobby card, wherever it is, after a change made from somewhere else. */
-async function refreshLobbyCard(
-  session: GameSession,
-  config: SurvivorConfig,
-  nowMs: number,
-  log: Logger,
-): Promise<void> {
-  const card = session.lobbyCard;
-  if (card === null || session.view().status !== "lobby") return;
-  const payload = lobbyPayload(session, config, nowMs);
-  try {
-    await card.edit({
-      embeds: payload.embeds ? [...payload.embeds] : [],
-      components: payload.components ? [...payload.components] : [],
-    });
-  } catch (cause) {
-    log.debug("could not re-render the lobby card", {
-      cause: cause instanceof Error ? cause.message : String(cause),
-    });
   }
 }
 

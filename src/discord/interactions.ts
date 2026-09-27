@@ -656,6 +656,8 @@ const ERROR_COPY: Readonly<Record<GameErrorCode, string>> = {
     "Not at this point in the turn. A turn goes **steal → play (optional) → draw**.",
   steal_step_not_done:
     "Steal first. `/steal` takes a random card from another player, and only then may you play one.",
+  steal_being_answered:
+    "Your steal is in — the player you stole from has a few seconds to answer it with Sorry For You!. Once that window closes you can play a card or `/skip`; the prompt in the channel shows when.",
   card_already_played_this_turn:
     "You have already played a card this turn — you get one. `/draw` to finish your turn.",
 

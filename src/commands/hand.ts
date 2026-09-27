@@ -85,7 +85,7 @@ const ACTION_HINT: Readonly<Record<ActionKind, string>> = {
   name_castaways: "`/castaways`, or the lobby message",
   start_game: "the lobby message",
   abandon_game: "`/survivor abandon`",
-  remove_player: "the lobby message",
+  remove_player: "`/survivor remove <player>`",
   transfer_host: "`/survivor host <player>`",
 
   steal_random: "`/steal <player>`",
@@ -116,16 +116,16 @@ const ACTION_HINT: Readonly<Record<ActionKind, string>> = {
   play_goodwill_gamble: "`/council`",
   play_im_the_leader_now: "`/council`",
   cast_vote: "`/vote <player>`",
-  finish_voting: "the voting prompt in the channel",
+  finish_voting: "**I'm done voting** on `/vote`",
   play_immunity_idol: "`/council`",
   play_idol_nullifier: "`/council`",
   leader_choose_eliminations: "`/council`",
 
   advance_final_council: "`/council`",
-  reveal_hand: "the Final Tribal Council prompt",
-  juror_ready: "the Final Tribal Council prompt",
-  cast_jury_vote: "the Final Tribal Council prompt",
-  final_leader_break_tie: "the Final Tribal Council prompt",
+  reveal_hand: "`/council`",
+  juror_ready: "`/council`",
+  cast_jury_vote: "`/council`",
+  final_leader_break_tie: "`/council`",
 };
 
 /** One entry per distinct card kind held, with the instance names behind it. */

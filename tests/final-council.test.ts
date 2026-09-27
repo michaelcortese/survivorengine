@@ -955,8 +955,37 @@ describe("the Jury votes FOR a winner, and the most votes wins", () => {
     expect(declared.winnerId).toBe(alpha);
     expect(declared.method).toBe("jury_majority");
     expect(declared.votes).toBe(2);
+    expect(declared.votesAgainst).toBe(1);
     expect(declared.juryCount).toBe(3);
     expect(table.game.view().winnerId).toBe(alpha);
+  });
+
+  it("counts a juror who never voted for nobody when the backstop closes the vote", () => {
+    // Announcing "2–1" when one juror simply never voted puts a vote in the loser's column that
+    // nobody cast. The event carries both columns so the narration never has to guess.
+    const table = fivePlayerDrawPileExhausted();
+    const final = openJuryVote(table);
+    const [alpha] = final.finalists;
+    act(table, {
+      type: "cast_jury_vote",
+      actor: final.jury[0] as PlayerId,
+      finalist: alpha,
+    });
+    act(table, {
+      type: "cast_jury_vote",
+      actor: final.jury[1] as PlayerId,
+      finalist: alpha,
+    });
+
+    const deadline = finalCouncil(table).phaseDeadlineMs;
+    expect(deadline).not.toBeNull();
+    tick(table, (deadline as number) + 1);
+
+    const declared = lastEvent(table, "winner_declared");
+    expect(declared.winnerId).toBe(alpha);
+    expect(declared.votes).toBe(2);
+    expect(declared.votesAgainst).toBe(0);
+    expect(declared.juryCount).toBe(3);
   });
 
   it("decides a one-juror Jury on that juror's single vote", () => {

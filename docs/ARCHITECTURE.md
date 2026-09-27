@@ -608,12 +608,12 @@ GameState ──snapshot()──▶ GameSnapshot { schemaVersion, savedAtMs, sta
 - **JSON-shaped.** State holds arrays and plain objects, never `Map`, `Set`, or class instances.
   Card identity is a `CardUid` string and player identity is a `PlayerId` string, so a snapshot
   round-trips with no reference-fixup pass — the pass that lost Inheritance links in #100.
-- **Frequent.** `saveOnEveryMutation` is on, debounced by `debounceInterval`. Audit #60: the old
-  bot's only save trigger was `/end_turn`, so every mid-turn mutation and every Tribal Council was
-  lost on a crash.
-- **Scoped.** Restores are keyed by game id inside `config.autosave.directory`.
-  `allowArbitraryRestorePaths` defaults to false. Audit #124: `/resume` read any caller-supplied
-  filesystem path with no authorization.
+- **Frequent.** Every state-changing dispatch schedules a save, debounced by
+  `debounceInterval`. Audit #60: the old bot's only save trigger was `/end_turn`, so every
+  mid-turn mutation and every Tribal Council was lost on a crash.
+- **Scoped.** Restores are keyed by game id inside `config.autosave.directory`, and there is no
+  setting to widen that. Audit #124: `/resume` read any caller-supplied filesystem path with no
+  authorization.
 - **Testable.** The round-trip property — `restore(snapshot(g)).state()` deep-equals `g.state()`
   — is a single test, because the engine is pure and the state is plain data.
 - **Census-checkable.** "Every uid is in exactly one place" is a real, testable invariant:
@@ -679,7 +679,7 @@ state mid-mutation, because the engine builds a new state or returns `err` havin
   non-zero. `SIGINT`/`SIGTERM` do the same flush and exit 0 — **unless a save failed to reach
   the disk**, in which case the shutdown retries synchronously, says how many games were at risk
   and exits non-zero. A shutdown that lost a Tribal Council must not print "goodbye".
-- **Flush on shutdown.** `saveOnEveryMutation` is debounced by `autosave.debounceInterval`
+- **Flush on shutdown.** Autosave is debounced by `autosave.debounceInterval`
   (2s), so up to two seconds of committed state is unwritten at any instant. Every exit path
   drains the debounce queue first.
 - **Login failure exits non-zero.** A bot that cannot log in must not sit there looking healthy

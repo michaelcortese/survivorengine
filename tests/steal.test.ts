@@ -493,6 +493,22 @@ describe("turn step 1: the mandatory steal", () => {
     );
   });
 
+  it("once declared, tells the thief it is being answered — never to steal first", () => {
+    // Twenty seconds after stealing, "steal first" reads as the bot having lost the move. The
+    // steal IS done as far as the thief can act on it; what is open is the victim's window.
+    const sim = new Sim(setHands(started(3), { Bex: [CardKind.ExtraVote] }));
+    sim.do({ type: "steal_random", actor: ARI, target: BEX });
+    expect(openTakes(sim.state)).toHaveLength(1);
+
+    rejects(sim.state, { type: "skip_play_step", actor: ARI }, "steal_being_answered");
+    rejects(sim.state, { type: "draw_card", actor: ARI }, "steal_being_answered");
+    rejects(
+      sim.state,
+      { type: "steal_random", actor: ARI, target: CYD },
+      "steal_being_answered",
+    );
+  });
+
   it("cannot be armed a second time while the first steal is still awaiting a reaction", () => {
     // "Steal one random card from a chosen player" — ONE steal, from ONE player. The window
     // being open is not permission to declare another: audit #83 is exactly "two steals can be

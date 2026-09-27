@@ -573,7 +573,9 @@ export function describeEvent(event: GameEvent, ctx: RenderContext): Narration |
     case "snapshot_restored":
       return line(
         [
-          `💾 Game restored from the autosave taken <t:${Math.floor(event.savedAtMs / 1000)}:R>. Nothing was lost.`,
+          // `savedAtMs` is a deterministic stamp, not a clock reading: showing it as a time put
+          // "saved 3 hours ago" on a game played a minute before the restart.
+          `💾 Game restored from the autosave — last played <t:${Math.floor(event.lastPlayedAtMs / 1000)}:R>. Nothing was lost.`,
           // The table needs to know what the restart did to their clock. Without this the only
           // visible sign would be windows whose countdowns jumped, or — before deadlines were
           // rebased at all — a council that resolved itself in three seconds.
@@ -810,14 +812,14 @@ export function describeEvent(event: GameEvent, ctx: RenderContext): Narration |
     case "council_phase_changed": {
       const headline: Readonly<Record<typeof event.to, string | null>> = {
         advantages:
-          "**Tribal Advantages.** Control the Vote, Goodwill Gamble and I'm the Leader Now may be played now or any time before the vote.",
+          "**Tribal Advantages.** Control the Vote, Goodwill Gamble and I'm the Leader Now may be played now or any time before the vote — from **/council**.",
         discussion: "**Discussion.** Talk it out. Advantages are still playable.",
         voting:
           "**Voting is open.** Everyone with a Vote Card must vote — use **/vote**. Nobody sees a ballot until the box is opened.",
         idols:
-          "**Immunity Idols.** Every vote is in. Idols may be played now, before the box opens.",
+          "**Immunity Idols.** Every vote is in. Idols may be played now, before the box opens — from **/council**.",
         nullifiers:
-          "**Idol Nullifiers.** An idol has been played. It can still be cancelled.",
+          "**Idol Nullifiers.** An idol has been played. It can still be cancelled — from **/council**.",
         tally: "**The votes will now be read.**",
         tie_break: "**It is not clear who is voted out.** The Leader must decide.",
         cleanup: null,
@@ -903,7 +905,7 @@ export function describeEvent(event: GameEvent, ctx: RenderContext): Narration |
 
     case "idol_window_opened":
       return line(
-        `🗿 ${bold("Immunity Idols")} may be played until ${deadline(event.deadlineMs)} — on yourself or on anyone else.`,
+        `🗿 ${bold("Immunity Idols")} may be played until ${deadline(event.deadlineMs)} — on yourself or on anyone else. Holding one? ${bold("/council")} has the button.`,
       );
 
     case "idol_played":
@@ -913,7 +915,7 @@ export function describeEvent(event: GameEvent, ctx: RenderContext): Narration |
 
     case "nullifier_window_opened":
       return line(
-        `🕳️ ${quantity(event.idolCardUids.length, "idol")} on the table. An ${bold("Idol Nullifier")} may cancel one until ${deadline(event.deadlineMs)}.`,
+        `🕳️ ${quantity(event.idolCardUids.length, "idol")} on the table. An ${bold("Idol Nullifier")} may cancel one until ${deadline(event.deadlineMs)} — from ${bold("/council")}.`,
       );
 
     case "idol_nullified":
@@ -1149,9 +1151,13 @@ export function describeEvent(event: GameEvent, ctx: RenderContext): Narration |
       );
 
     case "winner_declared": {
+      const votes = event.votes ?? 0;
+      // Older events carry no `votesAgainst`; for them the difference is the best available.
+      const against = event.votesAgainst ?? Math.max(0, (event.juryCount ?? 0) - votes);
+      const abstained = Math.max(0, (event.juryCount ?? 0) - votes - against);
       const method =
         event.method === "jury_majority"
-          ? `by a Jury vote of ${event.votes ?? 0}–${Math.max(0, (event.juryCount ?? 0) - (event.votes ?? 0))}`
+          ? `by a Jury vote of ${votes}–${against}${abstained > 0 ? ` (${quantity(abstained, "juror")} did not vote)` : ""}`
           : event.method === "leader_tie_break"
             ? "on the Final Tribal Council Leader's casting decision"
             : "as the last player standing";

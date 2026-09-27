@@ -66,6 +66,7 @@ import {
   forceJuryVoteClose,
   forceTieBreak,
   forfeitInheritance,
+  juryCountFor,
   markJurorReady,
   nextFinalPhase,
   revealFinalistHand,
@@ -230,6 +231,10 @@ function requireTarget(
   return ok(player);
 }
 
+/** A turn steal has been declared and its take window is still open. */
+const stealIsBeingAnswered = (ctx: Ctx): boolean =>
+  ctx.pending.some((p) => p.kind === "take" && p.origin.kind === "turn_steal");
+
 function requireTurn(ctx: Ctx, actor: PlayerId, phase: TurnPhase): Result<DraftPlayer> {
   const active = requireActive(ctx);
   if (!active.ok) return active;
@@ -244,9 +249,17 @@ function requireTurn(ctx: Ctx, actor: PlayerId, phase: TurnPhase): Result<DraftP
     return err("wrong_turn_phase", "a Tribal Council is in progress");
   if (turn.playerId !== actor) return err("not_your_turn", "it is not your turn");
   if (turn.phase !== phase) {
-    // The dedicated code exists so the renderer can say "steal first" rather than "wrong phase".
+    // The dedicated codes exist so the renderer can say "steal first" — or, once the steal is
+    // declared and only its Sorry For You window is still open, "wait for it to land" — rather
+    // than "wrong phase". Telling a thief to steal first, twenty seconds after they stole, reads
+    // as the bot having lost their move.
     if (phase !== "steal" && turn.phase === "steal")
-      return err("steal_step_not_done", "you must steal a card first");
+      return stealIsBeingAnswered(ctx)
+        ? err(
+            "steal_being_answered",
+            "your steal is waiting on its Sorry For You window",
+          )
+        : err("steal_step_not_done", "you must steal a card first");
     return err(
       "wrong_turn_phase",
       `this belongs to the ${phase} step, not ${turn.phase}`,
@@ -1170,8 +1183,8 @@ function applyAction(ctx: Ctx, action: Action): Result<void> {
       // on it alone lets a second declaration arm a second independent take against a second
       // victim (audit #83). "Pick a player and steal a random card from them" — one player, one
       // card, once per turn.
-      if (ctx.pending.some((p) => p.kind === "take" && p.origin.kind === "turn_steal"))
-        return err("wrong_turn_phase", "your steal is still being answered");
+      if (stealIsBeingAnswered(ctx))
+        return err("steal_being_answered", "your steal is still being answered");
       const target = requireTarget(ctx, action.actor, action.target, false);
       if (!target.ok) return target;
       if (
@@ -1959,10 +1972,12 @@ function applyAction(ctx: Ctx, action: Action): Result<void> {
       if (!final.finalists.includes(action.winner))
         return err("invalid_target", "the winner must be one of the final two");
       // "They DON'T have to pick the player they originally voted for."
-      completeFinalCouncil(ctx, action.winner, true, {
-        votes: final.juryVotes.filter((v) => v.finalistId === action.winner).length,
-        juryCount: final.jury.length,
-      });
+      completeFinalCouncil(
+        ctx,
+        action.winner,
+        true,
+        juryCountFor(final, action.winner),
+      );
       return OK;
     }
 
@@ -3239,6 +3254,7 @@ export const restoreGame = (snapshot: GameSnapshot, nowMs?: number): Result<Game
     schemaVersion: snapshot.schemaVersion,
     seq: state.seq,
     savedAtMs: snapshot.savedAtMs,
+    lastPlayedAtMs: lastTouchedAtMs(snapshot.state),
     // How far every open window was pushed out, so the table can see what the restart did to
     // their clock rather than watching a council resolve itself in three seconds.
     rebasedByMs:

@@ -928,7 +928,9 @@ function galleryEvents(view: GameView, state: GameState): readonly GameEvent[] {
     type: "snapshot_restored",
     schemaVersion: 1,
     seq: 100,
-    savedAtMs: 1_700_000_000_000,
+    savedAtMs: 1_700_000_000_100,
+    lastPlayedAtMs: 1_700_003_600_000,
+    rebasedByMs: 45_000,
   });
 
   // --- turn ---

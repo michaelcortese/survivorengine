@@ -1295,6 +1295,21 @@ describe("snapshot schema version", () => {
     );
   });
 
+  it("restoring says when the game was last PLAYED, not the save's deterministic stamp", () => {
+    // `savedAtMs` is `createdAtMs + seq`, chosen so a snapshot round-trips byte for byte. Shown
+    // as a time it said "saved hours ago" of a game played a minute before the restart.
+    const rig = reach("mid-game", (g) => g.state().zones.discardPile.length > 2);
+    const state = rig.game.state();
+    const copy = restoreThroughTheWire(rig.game);
+    const out = copy.tick(rig.clock.next());
+    if (!out.ok) throw new Error("tick failed");
+    const banner = out.value.events.find((e) => e.type === "snapshot_restored");
+    if (banner?.type !== "snapshot_restored") throw new Error("no restore banner");
+    expect(banner.savedAtMs).toBe(state.createdAtMs + state.seq);
+    expect(banner.lastPlayedAtMs).toBeGreaterThan(banner.savedAtMs);
+    expect(banner.lastPlayedAtMs).toBeLessThanOrEqual(rig.clock.ms);
+  });
+
   it("a snapshot from a newer or older schema is refused, not guessed at", () => {
     const rig = newRig(4, 4);
     const wire = throughTheWire(rig.game.snapshot()) as Record<string, unknown>;

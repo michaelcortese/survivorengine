@@ -288,20 +288,18 @@ export interface AutosaveConfig {
    */
   readonly directory: string;
   /**
-   * Save after every state-changing dispatch, not just at end of turn (audit #60: the old
-   * bot's only save trigger was /end_turn, so every Tribal Council was lost on a crash).
-   * The write rule is exactly `if (outcome.changed)` — see `DispatchOutcome.changed`.
+   * Minimum gap between writes so a burst of actions does not thrash the disk. Every
+   * state-changing dispatch schedules a save — the write rule is exactly `if (outcome.changed)`
+   * (audit #60: the old bot's only save trigger was /end_turn, so every council was lost on a
+   * crash) — and this is the only knob on it.
    */
-  readonly saveOnEveryMutation: boolean;
-  /** Minimum gap between writes so a burst of actions does not thrash the disk. */
   readonly debounceInterval: Milliseconds;
-  /** How many historical snapshots to retain per game before pruning. At least 1. */
-  readonly keepSnapshots: number;
   /**
-   * Audit #124: /resume read an arbitrary caller-supplied filesystem path with no
-   * authorization. Restores are keyed by game id inside `directory` and nothing else.
+   * How many historical snapshots to retain per game before pruning. At least 1. Restores are
+   * keyed by game id inside `directory` and nothing else — there is deliberately no setting to
+   * widen that (audit #124: /resume read an arbitrary caller-supplied path).
    */
-  readonly allowArbitraryRestorePaths: boolean;
+  readonly keepSnapshots: number;
 }
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
@@ -378,8 +376,6 @@ export interface DiscordConfig {
   readonly maxTimerDelay: Milliseconds;
   /** Discord kills an interaction token after 15 minutes; we refuse to plan past this. */
   readonly interactionTokenLifetime: Milliseconds;
-  /** Component collectors are scoped per message and per user; this is their ceiling. */
-  readonly componentCollectorTimeout: Milliseconds;
   /** Audit #90: card art was pasted as bare URLs and vanished without Embed Links. */
   readonly renderCardArt: boolean;
   /**
@@ -480,10 +476,8 @@ export const DEFAULT_CONFIG: SurvivorConfig = {
   autosave: {
     enabled: true,
     directory: ".survivor-state",
-    saveOnEveryMutation: true,
     debounceInterval: 2 * SECOND,
     keepSnapshots: 3,
-    allowArbitraryRestorePaths: false,
   },
   discord: {
     tokenEnvVar: "DISCORD_TOKEN",
@@ -506,7 +500,6 @@ export const DEFAULT_CONFIG: SurvivorConfig = {
     autoDeferAfter: 2 * SECOND,
     maxTimerDelay: 2_147_483_647,
     interactionTokenLifetime: 15 * MINUTE,
-    componentCollectorTimeout: 5 * MINUTE,
     renderCardArt: true,
     boardImages: true,
     customIdPrefix: "sv",
@@ -778,33 +771,18 @@ export function loadConfig(env: Environment): SurvivorConfig {
     autosave: {
       enabled: readBool(env, "AUTOSAVE", d.autosave.enabled),
       directory: readString(env, "STATE_DIR", d.autosave.directory),
-      saveOnEveryMutation: readBool(
-        env,
-        "SAVE_EVERY_MUTATION",
-        d.autosave.saveOnEveryMutation,
-      ),
       debounceInterval: readInt(env, "SAVE_DEBOUNCE_MS", d.autosave.debounceInterval, {
         min: 0,
       }),
       keepSnapshots: readInt(env, "KEEP_SNAPSHOTS", d.autosave.keepSnapshots, {
         min: 1,
       }),
-      allowArbitraryRestorePaths: readBool(
-        env,
-        "ALLOW_ARBITRARY_RESTORE_PATHS",
-        d.autosave.allowArbitraryRestorePaths,
-      ),
     },
     discord: {
       ...d.discord,
       renderCardArt: readBool(env, "RENDER_CARD_ART", d.discord.renderCardArt),
       boardImages: readBool(env, "BOARD_IMAGES", d.discord.boardImages),
       autoDeferAfter: readDuration(env, "AUTO_DEFER_MS", d.discord.autoDeferAfter),
-      componentCollectorTimeout: readDuration(
-        env,
-        "COLLECTOR_TIMEOUT_MS",
-        d.discord.componentCollectorTimeout,
-      ),
       logLevel: readEnum(
         env,
         "LOG_LEVEL",

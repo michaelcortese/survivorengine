@@ -231,7 +231,10 @@ interface SnapshotRestored {
   readonly type: "snapshot_restored";
   readonly schemaVersion: number;
   readonly seq: number;
+  /** A deterministic stamp (`createdAtMs + seq`), NOT a clock reading — never show it as a time. */
   readonly savedAtMs: number;
+  /** The last real moment the game was played before the restart. This one is a time. */
+  readonly lastPlayedAtMs: number;
   /**
    * How far every open deadline was moved forward to account for the downtime. Zero when the
    * restore did not rebase (a test restoring a state byte-for-byte).
@@ -971,6 +974,11 @@ interface WinnerDeclared {
   readonly method: "jury_majority" | "leader_tie_break" | "sole_survivor";
   /** Absent for `sole_survivor`: there was no jury vote to count. */
   readonly votes?: number;
+  /**
+   * The other finalist's votes. A juror who never voted — the backstop closed the vote without
+   * them — is in neither number, which is why this is not `juryCount - votes`.
+   */
+  readonly votesAgainst?: number;
   readonly juryCount?: number;
 }
 

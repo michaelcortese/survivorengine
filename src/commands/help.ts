@@ -245,6 +245,7 @@ function commands(): EmbedBuilder {
           "`/survivor start` — open a lobby in this channel",
           "`/survivor resume` — bring back this channel's game after a restart",
           "`/survivor host <player>` — hand the host role to somebody else (host only)",
+          "`/survivor remove <player>` — take a player out of the game (host only, with a confirmation)",
           "`/survivor abandon` — end this channel's game (host or a server moderator, with a confirmation)",
           "`/castaways` — name the two castaways who are your lives, with photos if you like",
         ].join("\n"),
@@ -277,7 +278,7 @@ function commands(): EmbedBuilder {
       {
         name: "Buttons, not commands",
         value:
-          "Reactions and windows — blocking with Sorry For You!, playing an idol, claiming an Inheritance, answering a challenge, discarding — are all buttons the bot posts when they become possible. A button belongs to one player and one moment; if it stops being valid, the bot says so instead of failing.",
+          "Reactions and windows — blocking with Sorry For You!, claiming an Inheritance, answering a challenge, discarding — are buttons the bot posts in the channel when they become possible. Cards played AT a council — idols, Idol Nullifiers and the Tribal Advantages — are buttons on the `/council` panel. A button belongs to one player and one moment; if it stops being valid, the bot says so instead of failing.",
       },
     );
 }

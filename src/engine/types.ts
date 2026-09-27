@@ -140,6 +140,8 @@ export type GameErrorCode =
   | "not_your_turn"
   | "wrong_turn_phase"
   | "steal_step_not_done"
+  /** The steal IS declared; the victim's Sorry For You window on it has not closed yet. */
+  | "steal_being_answered"
   | "card_already_played_this_turn"
   // cards and targets
   | "card_not_in_hand"

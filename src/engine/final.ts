@@ -47,6 +47,7 @@ import {
   playersInPlay,
 } from "./player.js";
 import {
+  CardKind,
   councilOf,
   finalCouncilOf,
   finalPhaseAtOrAfter,
@@ -58,6 +59,7 @@ import {
   type FinalCouncilState,
   type JuryVote,
   type PendingInheritance,
+  type PlayerColor,
   type PlayerId,
 } from "./types.js";
 
@@ -142,13 +144,22 @@ export function eliminatePlayer(
   cancelPendingsInvolving(ctx, player.id, "player_eliminated");
   dropCouncilObligations(ctx, player.id);
 
-  const claimant = options.allowInheritance
-    ? ctx.players.find(
-        (p) => isInPlay(p) && inheritanceForColor(ctx, p, player.color) !== null,
-      )
-    : undefined;
+  // The window must not tell the table whether anybody holds the matching Inheritance card.
+  // Opening it only when somebody did made its very announcement a leak — "whoever holds the
+  // Red Inheritance may claim" told everyone that somebody held it — and its absence told them
+  // nobody did. So it opens whenever the card is somewhere the table cannot see: in another
+  // player's hand, OR face down in the draw pile, where nobody can claim it and the window
+  // simply runs out. Only a card the table can already see (face up in the discard pile, out
+  // of the game, or in the eliminated player's own hand, which is about to go face up) means
+  // no window.
+  const concealed =
+    options.allowInheritance &&
+    (ctx.players.some(
+      (p) => isInPlay(p) && inheritanceForColor(ctx, p, player.color) !== null,
+    ) ||
+      inheritanceInDrawPile(ctx, player.color));
 
-  if (claimant && player.hand.length > 0) {
+  if (concealed && player.hand.length > 0) {
     openInheritance(ctx, {
       eliminatedPlayerId: player.id,
       color: player.color,
@@ -168,6 +179,14 @@ export function eliminatePlayer(
   }
 
   afterPlayerCountChanged(ctx, trigger);
+}
+
+/** Is this colour's Inheritance card face down in the draw pile? */
+function inheritanceInDrawPile(ctx: Ctx, color: PlayerColor): boolean {
+  return ctx.zones.drawPile.some((uid) => {
+    const card = requireCard(ctx, uid);
+    return card.kind === CardKind.Inheritance && card.color === color;
+  });
 }
 
 /** What `releaseTableCards` actually took back, for the elimination report. */
@@ -458,11 +477,33 @@ function startFinalCouncil(
 // Ending the game
 // ---------------------------------------------------------------------------
 
+/** The jury's count for a winner. Jurors who never voted are in neither `votes` nor `votesAgainst`. */
+export interface JuryCount {
+  readonly votes: number;
+  readonly votesAgainst: number;
+  readonly juryCount: number;
+}
+
+export function juryCountFor(
+  final: {
+    readonly jury: readonly PlayerId[];
+    readonly juryVotes: readonly { readonly finalistId: PlayerId }[];
+  },
+  winnerId: PlayerId,
+): JuryCount {
+  const votes = final.juryVotes.filter((vote) => vote.finalistId === winnerId).length;
+  return {
+    votes,
+    votesAgainst: final.juryVotes.length - votes,
+    juryCount: final.jury.length,
+  };
+}
+
 export function finishGame(
   ctx: Ctx,
   winnerId: PlayerId | null,
   method: "jury_majority" | "leader_tie_break" | "sole_survivor" | null,
-  votes?: { readonly votes: number; readonly juryCount: number },
+  votes?: JuryCount,
 ): void {
   const council = councilOf(ctx.stage);
   if (council) sweepCouncilCards(ctx, council);
@@ -472,7 +513,13 @@ export function finishGame(
       type: "winner_declared",
       winnerId,
       method,
-      ...(votes ? { votes: votes.votes, juryCount: votes.juryCount } : {}),
+      ...(votes
+        ? {
+            votes: votes.votes,
+            votesAgainst: votes.votesAgainst,
+            juryCount: votes.juryCount,
+          }
+        : {}),
     });
   }
   ctx.stage = { kind: "finished", winnerId, finishedAtMs: ctx.nowMs };
@@ -621,17 +668,14 @@ export function revealJuryVotes(ctx: Ctx): void {
   }
 
   const winnerId = aVotes > bVotes ? a : b;
-  completeFinalCouncil(ctx, winnerId, false, {
-    votes: Math.max(aVotes, bVotes),
-    juryCount: final.jury.length,
-  });
+  completeFinalCouncil(ctx, winnerId, false, juryCountFor(final, winnerId));
 }
 
 export function completeFinalCouncil(
   ctx: Ctx,
   winnerId: PlayerId,
   byLeaderTieBreak: boolean,
-  votes: { readonly votes: number; readonly juryCount: number },
+  votes: JuryCount,
 ): void {
   patchFinalCouncil(ctx, { winnerId, winnerDecidedByLeaderTieBreak: byLeaderTieBreak });
   enterFinalPhase(ctx, "complete");
@@ -660,10 +704,7 @@ export function forceTieBreak(ctx: Ctx): void {
   const own =
     final.juryVotes.find((v) => v.jurorId === final.leaderId)?.finalistId ?? null;
   if (own && final.finalists.includes(own)) {
-    completeFinalCouncil(ctx, own, true, {
-      votes: final.juryVotes.filter((v) => v.finalistId === own).length,
-      juryCount: final.jury.length,
-    });
+    completeFinalCouncil(ctx, own, true, juryCountFor(final, own));
     return;
   }
   const [a, b] = final.finalists;

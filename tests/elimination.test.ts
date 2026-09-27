@@ -217,6 +217,18 @@ function putOnTopOfDeck(state: RawState, spec: CardSpec): string {
   return uid;
 }
 
+/**
+ * Move every Inheritance card still in the draw pile aside, face up. An Inheritance window opens
+ * whenever the matching card is somewhere the table cannot see, so a test about something else
+ * sets them aside rather than waiting out a window after every elimination.
+ */
+function setInheritanceAside(state: RawState): void {
+  const pile = state.zones.drawPile;
+  const loose = pile.filter((uid) => cardOf(state, uid).kind === CardKind.Inheritance);
+  state.zones.drawPile = pile.filter((uid) => !loose.includes(uid));
+  state.zones.removedFromGame.push(...loose);
+}
+
 /** Turn over the first Survivor Character Card, as an earlier council would have. */
 function preflip(state: RawState, seat: number): void {
   const card = state.players[seat]!.characterCards.find((c) => !c.flipped);
@@ -341,6 +353,13 @@ interface CouncilScenario {
   /** Seats whose first Survivor Character Card is already turned over. */
   readonly preflipped?: readonly number[];
   readonly councilKind?: CardKind;
+  /**
+   * Leave the undealt Inheritance cards face down in the draw pile. Off by default: an
+   * Inheritance window opens whenever the matching card is somewhere the table cannot see, so
+   * with the cards left in the pile every elimination below would wait out a window it is not
+   * about. The default sets them aside, face up, where the table can see nobody holds them.
+   */
+  readonly inheritanceInDrawPile?: boolean;
 }
 
 interface Rigged {
@@ -357,6 +376,7 @@ function riggedCouncil(scenario: CouncilScenario): Rigged {
       dealt[seat] = setHand(state, seat, scenario.hands?.[seat] ?? []);
     }
     for (const seat of scenario.preflipped ?? []) preflip(state, seat);
+    if (scenario.inheritanceInDrawPile !== true) setInheritanceAside(state);
     councilCardUid = putOnTopOfDeck(
       state,
       scenario.councilKind ?? CardKind.TribalCouncilSingle,
@@ -519,6 +539,7 @@ describe("an eliminated player's hand", () => {
       for (let seat = 0; seat < P.length; seat += 1) setHand(state, seat, []);
       setHand(state, 1, [CardKind.SorryForYou]);
       preflip(state, 1);
+      setInheritanceAside(state);
       markerUid = pull(state, CardKind.CampRaid);
       state.zones.inPlay.push(markerUid);
       state.players[1]!.campRaid = {
@@ -868,6 +889,56 @@ describe("Inheritance", () => {
     expect(wrong.ok).toBe(false);
     if (!wrong.ok) expect(wrong.error.code).toBe("invalid_target");
     assertConserved(game);
+  });
+
+  test("the window opens even when NOBODY can claim, if the card is face down in the draw pile — so it says nothing about who holds what", () => {
+    // Opening the window only when somebody held the card made its announcement a leak: "whoever
+    // holds the Orange Inheritance may claim" told the table that somebody did. With the card
+    // face down in the pile the window opens all the same, nobody can answer it, and it runs out.
+    const { game, dealt } = riggedCouncil({
+      preflipped: [1],
+      hands: { 1: [CardKind.SorryForYou, CardKind.ExtraVote] },
+      inheritanceInDrawPile: true,
+    });
+    const victimHand = dealt[1]!;
+    drawIntoCouncil(game, 3);
+    advanceCouncilTo(game, "voting");
+    voteEveryone(game, { 0: 1, 1: 0, 2: 1, 3: 1 });
+    // The council holds at the tally while the window is open.
+    const events = advanceCouncilTo(game, "tally");
+
+    const opened = requireEvent(events, "inheritance_window_opened");
+    expect(opened.eliminatedPlayerId).toBe(P[1]!);
+    for (const seat of [0, 2, 3]) {
+      expect(game.legalActions(P[seat]!, now()).map((a) => a.kind)).not.toContain(
+        "play_inheritance",
+      );
+    }
+    // Nothing moves until the window has run out; then the hand goes face up as usual.
+    expect(eventOf(events, "hand_discarded_on_elimination")).toBeUndefined();
+    const expired = game.tick(opened.deadlineMs + 1);
+    if (!expired.ok) throw new Error("tick failed");
+    const discarded = requireEvent(
+      expired.value.events,
+      "hand_discarded_on_elimination",
+    );
+    expect(discarded.cards.map((c) => c.uid).sort()).toEqual([...victimHand].sort());
+    assertConserved(game);
+  });
+
+  test("no window opens when the matching card is face up where the table can see it", () => {
+    const { game } = riggedCouncil({
+      preflipped: [1],
+      hands: { 1: [CardKind.SorryForYou] },
+    });
+    // The rig set every loose Inheritance card aside face up: nobody can hold Orange's.
+    drawIntoCouncil(game, 3);
+    advanceCouncilTo(game, "voting");
+    voteEveryone(game, { 0: 1, 1: 0, 2: 1, 3: 1 });
+    const events = advanceCouncilTo(game, "cleanup");
+
+    expect(eventOf(events, "inheritance_window_opened")).toBeUndefined();
+    expect(requireEvent(events, "hand_discarded_on_elimination").playerId).toBe(P[1]!);
   });
 
   test("an Inheritance card for a colour nobody is playing is a dead card: it never opens or answers a window", () => {
