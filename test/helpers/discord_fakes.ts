@@ -261,6 +261,11 @@ export class FakeInteraction {
     return this.modalSubmit;
   }
 
+  /** Button clicks and menu picks carry a custom id; slash commands don't. */
+  isMessageComponent() {
+    return this.customId !== "";
+  }
+
   /** Text of every reply, edit and follow-up. */
   get texts(): string[] {
     return this.log.map((entry) => entry.payload.content ?? "");

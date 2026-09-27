@@ -3,6 +3,7 @@ import {
   ChatInputCommandInteraction,
   Client,
   Message,
+  MessageComponentInteraction,
   MessageFlags,
   RepliableInteraction,
   SendableChannels,
@@ -128,12 +129,13 @@ export function handSelectOptions(hand: Card[]) {
 
 /**
  * Opens the Sorry for You window for `target` and counts it down in the
- * command's public reply (posting the reply if needed). Resolves with
- * "stopped" if the target blocks it in time. Returns null if another window is
- * already open.
+ * command's public reply (posting the reply if needed). When a button or menu
+ * starts it, the countdown replaces the message the component was on. Resolves
+ * with "stopped" if the target blocks it in time. Returns null if another
+ * window is already open.
  */
 export async function runSorryForYouWindow(
-  interaction: ChatInputCommandInteraction,
+  interaction: ChatInputCommandInteraction | MessageComponentInteraction,
   attacker: Player,
   target: Player,
   describe: (secondsLeft: number) => string,
@@ -148,6 +150,8 @@ export async function runSorryForYouWindow(
   try {
     if (interaction.replied || interaction.deferred) {
       await interaction.editReply({ content: describe(shown) });
+    } else if (interaction.isMessageComponent()) {
+      await interaction.update({ content: describe(shown), components: [] });
     } else {
       await interaction.reply({ content: describe(shown) });
     }

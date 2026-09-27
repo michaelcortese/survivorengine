@@ -37,7 +37,9 @@ The board is posted when the game starts and after every Tribal Council. **`/boa
 
 On your turn, steal a random card from someone (`/steal_random`), optionally play a card, then **`/draw`** to end your turn. The bot keeps track of whose turn it is: only that player can draw. If someone is away, anyone can use **`/skip_turn`**.
 
-`/steal_random` isn't locked to your turn, because Reward Challenges and Let's Form an Alliance also end in steals (those are played out at the table, then settled with `/steal_random`, `/give` and `/discard`).
+`/steal_random` isn't locked to your turn, because Reward Challenges also end in steals (those are played out at the table, then settled with `/steal_random`, `/give` and `/discard`).
+
+**Let's Form an Alliance** has its own command: `/form_alliance partner:@player target:@player` steals a random card from your target, then your partner picks who they steal from with buttons only they can use (if they don't pick in time, they miss out). Partners can pick the same player but can't steal from each other, and each steal can be blocked with Sorry for You.
 
 ### Tribal Council
 
@@ -65,7 +67,7 @@ When two players remain, the Final Tribal Council starts on its own. The finalis
 | `/hand`, `/card_info`, `/card_count` | Look at your cards, any card, or someone's hand size |
 | `/draw`, `/skip_turn` | End your turn, or skip an absent player |
 | `/steal_random`, `/give`, `/discard` | Move cards around |
-| `/spy_shack`, `/knowledge_is_power`, `/camp_raid`, `/sorry_for_you` | Play action cards |
+| `/spy_shack`, `/knowledge_is_power`, `/camp_raid`, `/form_alliance`, `/sorry_for_you` | Play action cards |
 | `/extra_vote`, `/control_the_vote`, `/goodwill_gamble`, `/im_the_leader` | Tribal advantages |
 | `/cast_vote`, `/immunity_idol`, `/idol_nullifier`, `/break_tie` | Tribal Council |
 | `/final_tribal_council`, `/reveal_votes` | Final Tribal Council (normally automatic) |
@@ -109,5 +111,5 @@ Other settings (player counts, cards per player, share of double Tribal Councils
 - [ ] REWARD CHALLENGE custom command
 - [x] Inheritance functionality (automatic when a player is eliminated)
 - [x] Pick your own castaways, grayed out as you lose lives
-- [ ] Let's Form an Alliance command
+- [x] Let's Form an Alliance command (`/form_alliance`)
 - [ ] Keep games going across bot restarts

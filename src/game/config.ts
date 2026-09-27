@@ -43,7 +43,10 @@ export const GameConfig = {
     suspenseMs: secondsFromEnv("SUSPENSE_SECONDS", 5),
     /** How long a /setup lobby stays open. */
     lobbyMs: secondsFromEnv("LOBBY_SECONDS", 30 * 60),
-    /** How long card pickers (give, discard, spy, forced discard) wait for a choice. */
+    /**
+     * How long card pickers (give, discard, spy, forced discard) and an
+     * alliance partner's pick wait for a choice.
+     */
     menuMs: secondsFromEnv("MENU_SECONDS", 60),
   },
 };
