@@ -373,10 +373,11 @@ function buildAction(
         : null;
     // The lobby actions are dealt by the harness itself (join / start), or are deliberately
     // never taken by the autopilot (`abandon_game` would end the run early). Listed rather than
-    // left to the `default` so that a 40th ActionKind is a build failure here too.
+    // left to the `default` so that a 41st ActionKind is a build failure here too.
     case "join_game":
     case "leave_game":
     case "choose_color":
+    case "name_castaways":
     case "start_game":
     case "abandon_game":
     case "remove_player":

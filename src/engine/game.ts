@@ -22,6 +22,7 @@
 
 import type { EngineConfig } from "../config.js";
 import { colorOf, getCard, nameableKinds } from "./cards.js";
+import { castawayKey, dealCastaways, isValidCastawayName } from "./castaways.js";
 import {
   auditCensus,
   discardCard,
@@ -948,6 +949,7 @@ function applyAction(ctx: Ctx, action: Action): Result<void> {
         displayName: action.displayName,
         color,
         seat: ctx.players.length,
+        castawaySlots: ctx.config.limits.characterCardsPerPlayer,
       });
       ctx.players.push(player);
       emitPublic(ctx, {
@@ -993,6 +995,9 @@ function applyAction(ctx: Ctx, action: Action): Result<void> {
       });
       return OK;
     }
+
+    case "name_castaways":
+      return nameCastaways(ctx, action.actor, action.castaways);
 
     case "leave_game": {
       const player = findPlayer(ctx, action.actor);
@@ -1065,6 +1070,7 @@ function applyAction(ctx: Ctx, action: Action): Result<void> {
         firstPlayerId: first.id,
         seed: ctx.rng.state().seed,
       });
+      dealLegends(ctx);
       setupDeck(ctx, count);
       beginTurn(ctx, first, 1);
       return OK;
@@ -1970,6 +1976,108 @@ function applyAction(ctx: Ctx, action: Action): Result<void> {
 // ---------------------------------------------------------------------------
 
 /**
+ * `name_castaways`: who is on each of this player's Survivor Character Cards.
+ *
+ * Cosmetic, but still table state, so every rule about it is checked here rather than trusted
+ * from the layer that collected the names: the right number of them, each already in the form
+ * `sanitizeCastawayName` produces (nothing that could ping, format or link in a channel), no
+ * castaway twice at one table, no blank once the game is under way, and no rewriting a castaway
+ * who has already been voted out — their card is face down on the "VOTED OUT" side.
+ */
+function nameCastaways(
+  ctx: Ctx,
+  actor: PlayerId,
+  names: readonly (string | null)[],
+): Result<void> {
+  const player = findPlayer(ctx, actor);
+  if (!player) return err("not_in_game", "join the game first");
+  if (player.leftAtSeq !== null)
+    return err("player_left_game", "you have left this game");
+  const inLobby = ctx.stage.kind === "lobby";
+  if (!inLobby) {
+    const active = requireActive(ctx);
+    if (!active.ok) return active;
+    if (player.eliminatedAtSeq !== null)
+      return err("player_eliminated", "both of your castaways have been voted out");
+  }
+
+  const slots = ctx.config.limits.characterCardsPerPlayer;
+  if (names.length !== slots)
+    return err("castaway_name_invalid", `name exactly ${slots} castaways`, {
+      given: names.length,
+    });
+  for (const name of names) {
+    if (name === null) {
+      if (!inLobby)
+        return err(
+          "castaway_name_invalid",
+          "every castaway needs a name once the game has begun",
+        );
+    } else if (!isValidCastawayName(name)) {
+      return err(
+        "castaway_name_invalid",
+        "that is not a castaway name the table can show",
+      );
+    }
+  }
+  for (const [i, card] of player.characterCards.entries()) {
+    if (card.flipped && names[i] !== player.castaways[i])
+      return err("castaway_voted_out", "that castaway has already been voted out", {
+        slot: i + 1,
+      });
+  }
+
+  const mine = names.flatMap((name) => (name === null ? [] : [castawayKey(name)]));
+  if (new Set(mine).size !== mine.length)
+    return err("castaway_name_taken", "the same castaway twice");
+  const elsewhere = new Set(
+    ctx.players
+      .filter((other) => other.id !== player.id)
+      .flatMap((other) => other.castaways)
+      .flatMap((name) => (name === null ? [] : [castawayKey(name)])),
+  );
+  if (mine.some((key) => elsewhere.has(key)))
+    return err(
+      "castaway_name_taken",
+      "someone at this table already has that castaway",
+    );
+
+  // Re-sending what is already there is not a change, and a change with no event is a lie.
+  if (names.every((name, i) => name === player.castaways[i])) return OK;
+  player.castaways = [...names];
+  emitPublic(ctx, {
+    type: "castaways_named",
+    playerId: player.id,
+    castaways: [...names],
+    reason: inLobby ? "picked" : "renamed",
+  });
+  return OK;
+}
+
+/**
+ * Deal a legend into every castaway nobody picked, as the game begins.
+ *
+ * From its own stream (`dealCastaways`), never from `ctx.rng`, so naming castaways can never
+ * change a shuffle, a steal or a Tribal Council placement. One `castaways_named` per player, so
+ * the log holds every castaway at the table, not only the ones somebody typed.
+ */
+function dealLegends(ctx: Ctx): void {
+  const dealt = dealCastaways(
+    ctx.players.map((player) => player.castaways),
+    ctx.rng.state().seed,
+  );
+  ctx.players.forEach((player, i) => {
+    player.castaways = dealt[i] ?? player.castaways;
+    emitPublic(ctx, {
+      type: "castaways_named",
+      playerId: player.id,
+      castaways: [...player.castaways],
+      reason: "dealt",
+    });
+  });
+}
+
+/**
  * Move the host role off somebody who has just left the table.
  *
  * A no-op for anyone who was not the host, so both call sites can call it unconditionally: the
@@ -2344,6 +2452,15 @@ function toPublicPlayer(
     isCouncilLeader: council?.leaderId === player.id,
     isHost: state.hostId === player.id,
     connected: player.connected,
+    castaways: player.castaways.map((name, i) => {
+      const card = player.characterCards[i];
+      return {
+        name,
+        cardUid: card?.uid ?? null,
+        votedOut: card?.flipped ?? false,
+        votedOutAtSeq: card?.flippedAtSeq ?? null,
+      };
+    }),
   };
 }
 
@@ -2537,6 +2654,7 @@ export function legalActionsFor(
     if (!player) add("join_game");
     else {
       add("choose_color");
+      add("name_castaways");
       add("leave_game");
       if (state.players.length >= state.config.limits.minPlayers) add("start_game");
     }

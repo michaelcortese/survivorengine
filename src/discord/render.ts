@@ -53,9 +53,11 @@ import type {
 } from "../engine/types.js";
 import { assertNever } from "../engine/types.js";
 import type { Logger } from "../logger.js";
+import { castawaysLine } from "./board.js";
 import {
   bold,
   cardName,
+  castawayList,
   colorEmoji,
   colorHex,
   councilKindLabel,
@@ -441,8 +443,8 @@ const HOUSE_RULE_BLURB: Readonly<Record<HouseRuleId, string>> = {
 /**
  * One event -> one narration, or null for events that carry no news worth a message.
  *
- * The `switch` is exhaustive over all 80 members, enforced by
- * `@typescript-eslint/switch-exhaustiveness-check` plus the `assertNever` default. An 81st event
+ * The `switch` is exhaustive over all 83 members, enforced by
+ * `@typescript-eslint/switch-exhaustiveness-check` plus the `assertNever` default. An 84th event
  * is a build failure here, which is the whole reason the union is closed — audit #74: thirteen
  * of forty-seven cards had no implementation at all and nothing noticed.
  */
@@ -485,6 +487,16 @@ export function describeEvent(event: GameEvent, ctx: RenderContext): Narration |
     case "color_chosen":
       return line(
         `${colorEmoji(event.color)} ${mention(event.playerId)} is now ${bold(humanize(event.color))}.`,
+      );
+
+    // Who is on each Survivor Character Card. One line per player, so the deal at the start
+    // reads as the tribe's roll call — and it is the whole of it wherever the board image cannot
+    // be drawn.
+    case "castaways_named":
+      return line(
+        event.reason === "renamed"
+          ? `🔥 ${mention(event.playerId)} renamed their castaways: ${castawayList(event.castaways)}.`
+          : `🔥 ${possessive(mention(event.playerId))} castaways: ${castawayList(event.castaways)}.`,
       );
 
     case "player_connection_changed":
@@ -969,6 +981,8 @@ export function describeEvent(event: GameEvent, ctx: RenderContext): Narration |
 
     case "character_card_flipped": {
       const remaining = event.charactersRemaining;
+      // Older events (and a castaway-less test fixture) carry no name; the sentence still reads.
+      const who = event.castaway ? `${bold(event.castaway)} is voted out. ` : "";
       return {
         kind: "beats",
         beats: [
@@ -978,8 +992,8 @@ export function describeEvent(event: GameEvent, ctx: RenderContext): Narration |
           {
             content:
               remaining > 0
-                ? `${italic("A torch is snuffed.")} ${torches(remaining, limits.characterCardsPerPlayer)} — ${mention(event.playerId)} ${verbHas(remaining)} ${torchCount(remaining)} left and is still in this game.`
-                : `${italic("The last torch is snuffed.")} ${torches(0, limits.characterCardsPerPlayer)}`,
+                ? `${italic("A torch is snuffed.")} ${who}${torches(remaining, limits.characterCardsPerPlayer)} — ${mention(event.playerId)} ${verbHas(remaining)} ${torchCount(remaining)} left and is still in this game.`
+                : `${italic("The last torch is snuffed.")} ${who}${torches(0, limits.characterCardsPerPlayer)}`,
           },
         ],
       };
@@ -1400,7 +1414,10 @@ export function statusEmbed(view: GameView, config: SurvivorConfig): EmbedBuilde
         : player.eliminated
           ? "*on the Jury*"
           : `${torches(player.charactersRemaining, perPlayer)} · ${quantity(player.handSize, "card")}${player.voteCardCount !== 1 ? ` · ${quantity(player.voteCardCount, "vote card")}` : ""}${player.grantedVoteCount > 0 ? ` · +${player.grantedVoteCount} granted` : ""}`;
-      return `${colorEmoji(player.color)} ${bold(player.displayName)} ${marks}\n\u2003${state}`;
+      // Who they are playing as: the castaways, struck through as they are voted out.
+      const castaways =
+        player.castaways.length > 0 ? `\n\u2003${castawaysLine(player)}` : "";
+      return `${colorEmoji(player.color)} ${bold(player.displayName)} ${marks}\n\u2003${state}${castaways}`;
     });
 
   // discord.js REJECTS an empty description outright ("Received one or more errors"), and
@@ -1649,6 +1666,16 @@ function handListText(hand: readonly CardInstance[], max: number): string {
   return truncate(`${joined}${tailFor(remaining)}`, max);
 }
 
+/** A lobby player's picks, a blank shown as the random legend it will become. */
+const lobbyCastaways = (player: PublicPlayerView): string =>
+  player.castaways
+    .map((castaway) =>
+      castaway.name === null
+        ? `🎲 ${italic("random legend")}`
+        : `🔥 ${bold(castaway.name)}`,
+    )
+    .join(" · ");
+
 /** The lobby card: who is in, what colour they took, and who may press Begin. */
 export function lobbyEmbed(view: GameView, config: SurvivorConfig): EmbedBuilder {
   const limits = config.engine.limits;
@@ -1671,13 +1698,14 @@ export function lobbyEmbed(view: GameView, config: SurvivorConfig): EmbedBuilder
           : view.players
               .map(
                 (player) =>
-                  `${colorEmoji(player.color)} ${mention(player.id)}${player.isHost ? " 🏕️" : ""}`,
+                  `${colorEmoji(player.color)} ${mention(player.id)}${player.isHost ? " 🏕️" : ""}\n\u2003${lobbyCastaways(player)}`,
               )
               .join("\n"),
         "",
         view.players.length < limits.minPlayers
           ? `Needs at least ${quantity(limits.minPlayers, "player")} — ${quantity(limits.minPlayers - view.players.length, "more")} to go.`
           : `Ready when the host is. Up to ${limits.maxPlayers} can play.`,
+        `Your two ${bold("castaways")} are your lives — the first is voted out first. Press ${bold("Castaways")} to pick yours, or leave them to chance and be dealt legends.`,
         free.length > 0
           ? italic(
               `Free colours: ${free.map((color) => `${color.emoji} ${color.label}`).join(", ")}`,

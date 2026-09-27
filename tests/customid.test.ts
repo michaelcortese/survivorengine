@@ -17,6 +17,7 @@ import { describe, expect, it } from "vitest";
 
 import { DEFAULT_CONFIG, type DiscordConfig } from "../src/config.js";
 import cardCommand from "../src/commands/card.js";
+import castawaysCommand from "../src/commands/castaways.js";
 import councilCommand from "../src/commands/council.js";
 import drawCommand from "../src/commands/draw.js";
 import handCommand from "../src/commands/hand.js";
@@ -603,6 +604,7 @@ describe("decoding input that arrived from the network", () => {
 
 const COMMANDS: readonly Command[] = [
   cardCommand,
+  castawaysCommand,
   councilCommand,
   drawCommand,
   handCommand,
@@ -866,6 +868,7 @@ const SKIP_WHEN_DRIVING: ReadonlySet<ActionKind> = new Set<ActionKind>([
   "start_game",
   "join_game",
   "choose_color",
+  "name_castaways",
 ]);
 
 function buildMove(game: Game, actor: PlayerId, legal: LegalAction): Action | null {

@@ -40,6 +40,7 @@ import {
   MessageFlags,
   PermissionFlagsBits,
   type AnySelectMenuInteraction,
+  type AttachmentBuilder,
   type AutocompleteInteraction,
   type ButtonInteraction,
   type ChatInputCommandInteraction,
@@ -52,7 +53,10 @@ import {
   type InteractionReplyOptions,
   type InteractionUpdateOptions,
   type Message,
+  type MessageComponentInteraction,
   type MessageEditOptions,
+  type ModalBuilder,
+  type ModalMessageModalSubmitInteraction,
   type ModalSubmitInteraction,
   type RESTPostAPIChatInputApplicationCommandsJSONBody,
   type RepliableInteraction,
@@ -119,6 +123,11 @@ export interface Payload {
   readonly content?: string;
   readonly embeds?: readonly EmbedBuilder[];
   readonly components?: readonly Row[];
+  /**
+   * Attachments — the tribe board picture. Carried by `announce()` only: a board is public by
+   * rule, so it has no business on an ephemeral reply.
+   */
+  readonly files?: readonly AttachmentBuilder[];
 }
 
 /**
@@ -176,6 +185,19 @@ function toMessageEditOptions(payload: Payload): MessageEditOptions {
     embeds: payload.embeds ? [...payload.embeds] : [],
     components: payload.components ? [...payload.components] : [],
   };
+}
+
+/**
+ * An interaction raised from a message this bot may edit: a component on it, or a modal that was
+ * opened from one of its components. Both answer `update()` / `deferUpdate()` by editing THAT
+ * message, which is what lets a form opened from the lobby card re-render the card itself.
+ */
+type FromMessage = MessageComponentInteraction | ModalMessageModalSubmitInteraction;
+
+function fromMessage(interaction: RepliableInteraction): FromMessage | null {
+  if (interaction.isMessageComponent()) return interaction;
+  if (interaction.isModalSubmit() && interaction.isFromMessage()) return interaction;
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -254,7 +276,7 @@ export class Responder {
     if (this.#autoDeferTimer !== null || this.acknowledged) return;
     const timer = setTimeout(() => {
       this.#autoDeferTimer = null;
-      const asUpdate = this.#interaction.isMessageComponent();
+      const asUpdate = fromMessage(this.#interaction) !== null;
       void (asUpdate ? this.deferUpdate() : this.defer());
     }, this.#discord.autoDeferAfter);
     // A pending acknowledgement must never be the reason the process is still alive.
@@ -291,12 +313,32 @@ export class Responder {
   async deferUpdate(): Promise<void> {
     await this.#enqueue(async () => {
       if (this.#state !== "fresh") return;
-      if (!this.#interaction.isMessageComponent()) return;
+      const source = fromMessage(this.#interaction);
+      if (source === null) return;
       this.cancelAutoDefer();
-      await this.#interaction.deferUpdate();
+      await source.deferUpdate();
       this.#state = "deferred";
       this.#deferKind = "update";
     }, "deferUpdate");
+  }
+
+  /**
+   * Answer with a form. Only ever the FIRST answer: Discord refuses a modal on an interaction that
+   * has already been acknowledged, and a modal submission cannot open another. Returns false when
+   * the modal could not be shown, so the caller can say so instead of leaving the press hanging.
+   */
+  async showModal(modal: ModalBuilder): Promise<boolean> {
+    const shown = await this.#enqueue(async () => {
+      if (this.#state !== "fresh") return false;
+      const interaction = this.#interaction;
+      if (!interaction.isChatInputCommand() && !interaction.isMessageComponent())
+        return false;
+      this.cancelAutoDefer();
+      await interaction.showModal(modal);
+      this.#state = "replied";
+      return true;
+    }, "showModal");
+    return shown ?? false;
   }
 
   // -------------------------------------------------------------------------
@@ -366,6 +408,7 @@ export class Responder {
           content: payload.content,
           embeds: payload.embeds ? [...payload.embeds] : undefined,
           components: payload.components ? [...payload.components] : undefined,
+          files: payload.files ? [...payload.files] : undefined,
         });
       },
       "announce",
@@ -376,11 +419,14 @@ export class Responder {
   // The message a component lives on
   // -------------------------------------------------------------------------
 
-  /** Re-render the message this component is attached to. No-op off a component. */
+  /**
+   * Re-render the message this component is attached to — or, for a modal opened from a
+   * component, the message that component was on. No-op off a message.
+   */
   async update(payload: Payload): Promise<void> {
     await this.#enqueue(async () => {
-      const interaction = this.#interaction;
-      if (!interaction.isMessageComponent()) return;
+      const interaction = fromMessage(this.#interaction);
+      if (interaction === null) return;
       this.cancelAutoDefer();
 
       if (this.#state === "fresh") {
@@ -474,8 +520,8 @@ export class Responder {
    * fallback for the case where the token has already expired but the message is a real one.
    */
   async #editSourceMessage(options: MessageEditOptions): Promise<void> {
-    const interaction = this.#interaction;
-    if (!interaction.isMessageComponent()) return;
+    const interaction = fromMessage(this.#interaction);
+    if (interaction === null) return;
     try {
       await interaction.webhook.editMessage(interaction.message.id, {
         content: options.content ?? null,
@@ -590,6 +636,12 @@ const ERROR_COPY: Readonly<Record<GameErrorCode, string>> = {
   already_joined: "You are already in this game.",
   color_taken: "Someone already took that colour. Pick another from the lobby message.",
   no_colors_available: "Every colour is taken.",
+  castaway_name_invalid:
+    "That castaway name will not fit on the board. Use letters, numbers, spaces and simple punctuation, up to 40 characters — and once the game is under way, every castaway needs a name.",
+  castaway_name_taken:
+    "Somebody at this table already has that castaway, and there is only one of each. Pick someone else — `/castaways` suggests legends as you type.",
+  castaway_voted_out:
+    "That castaway has already been voted out, and their card stays turned over. You can still rename the ones in the game.",
   not_in_game:
     "You are not in this game. Join from the lobby message before it begins.",
   player_eliminated:
@@ -1154,7 +1206,7 @@ interface BuildContext {
 }
 
 /**
- * One builder per action. `Record<ActionKind, Builder>` so a 39th action cannot be added without
+ * One builder per action. `Record<ActionKind, Builder>` so a 41st action cannot be added without
  * deciding how its component decodes — the same compile-time guarantee `ACTION_CODE` gives.
  */
 const BUILDERS: Readonly<Record<ActionKind, Builder>> = {
@@ -1174,6 +1226,11 @@ const BUILDERS: Readonly<Record<ActionKind, Builder>> = {
     f.color === null
       ? missing("a colour")
       : ok({ type: "choose_color", actor: c.actor, color: f.color }),
+  name_castaways: () =>
+    NEEDS_HANDLER(
+      "name_castaways",
+      "castaway names are typed, so they arrive through a modal or `/castaways`",
+    ),
   start_game: (f, c) =>
     ok(
       f.playerIds[0] === undefined

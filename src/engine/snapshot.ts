@@ -21,6 +21,7 @@
  */
 
 import { auditCensus } from "./card.js";
+import { dealCastaways } from "./castaways.js";
 import {
   COUNCIL_PHASE_ORDER,
   FINAL_COUNCIL_PHASE_ORDER,
@@ -101,7 +102,7 @@ function malformed<T>(what: string, detail?: string): Result<T> {
   );
 }
 
-function checkPlayer(raw: unknown, at: number): string | null {
+function checkPlayer(raw: unknown, at: number, version: number): string | null {
   if (!isRecord(raw)) return `players[${at}] is not an object`;
   if (typeof raw.id !== "string") return `players[${at}].id`;
   if (typeof raw.displayName !== "string") return `players[${at}].displayName`;
@@ -135,7 +136,51 @@ function checkPlayer(raw: unknown, at: number): string | null {
   if (!isNumberOrNull(raw.eliminatedAtSeq)) return `players[${at}].eliminatedAtSeq`;
   if (!isNumberOrNull(raw.leftAtSeq)) return `players[${at}].leftAtSeq`;
   if (typeof raw.connected !== "boolean") return `players[${at}].connected`;
+  // Version 1 had no castaways; `upgradeFromV1` supplies them once the rest has been checked.
+  if (version >= 2) {
+    if (!Array.isArray(raw.castaways)) return `players[${at}].castaways`;
+    for (const [i, name] of raw.castaways.entries()) {
+      if (name !== null && typeof name !== "string")
+        return `players[${at}].castaways[${i}]`;
+    }
+    // `castaways[i]` is the castaway ON `characterCards[i]`, so once the cards are dealt the
+    // two lists must line up one for one.
+    if (
+      raw.characterCards.length > 0 &&
+      raw.castaways.length !== raw.characterCards.length
+    )
+      return `players[${at}].castaways`;
+  }
   return null;
+}
+
+/**
+ * Version 1 → 2: every player gains `castaways`.
+ *
+ * A lobby gets blanks, exactly as a player who has not picked yet has, so the legends are dealt
+ * when the game begins. A game already under way gets its legends dealt now — from the game's own
+ * seed, so the same save always comes back with the same castaways — because a running game has
+ * no blanks: `start_game` would have filled them.
+ */
+function upgradeFromV1(state: Record<string, unknown>): Record<string, unknown> {
+  const players = state.players as readonly Record<string, unknown>[];
+  const stage = state.stage as { readonly kind: string };
+  const config = state.config as { readonly limits: Record<string, unknown> };
+  const rng = state.rng as { readonly seed: number };
+  const perPlayer =
+    typeof config.limits.characterCardsPerPlayer === "number"
+      ? config.limits.characterCardsPerPlayer
+      : 2;
+  const blanks = players.map((player) => {
+    const cards = player.characterCards as readonly unknown[];
+    const slots = cards.length > 0 ? cards.length : perPlayer;
+    return Array.from({ length: slots }, (): string | null => null);
+  });
+  const castaways = stage.kind === "lobby" ? blanks : dealCastaways(blanks, rng.seed);
+  return {
+    ...state,
+    players: players.map((player, i) => ({ ...player, castaways: castaways[i] ?? [] })),
+  };
 }
 
 const PENDING_KINDS = [
@@ -306,17 +351,19 @@ function checkConfig(raw: unknown): string | null {
 export function parseSnapshot(raw: unknown): Result<GameSnapshot> {
   if (!isRecord(raw)) return malformed("root is not an object");
   if (typeof raw.schemaVersion !== "number") return malformed("schemaVersion");
-  if (raw.schemaVersion !== SNAPSHOT_SCHEMA_VERSION) {
+  const version = raw.schemaVersion;
+  if (version !== SNAPSHOT_SCHEMA_VERSION && version !== 1) {
     return err(
       "snapshot_version_unsupported",
-      `snapshot schema version ${raw.schemaVersion} is not supported (engine speaks ${SNAPSHOT_SCHEMA_VERSION})`,
-      { found: raw.schemaVersion, expected: SNAPSHOT_SCHEMA_VERSION },
+      `snapshot schema version ${version} is not supported (engine speaks ${SNAPSHOT_SCHEMA_VERSION}, and reads 1)`,
+      { found: version, expected: SNAPSHOT_SCHEMA_VERSION },
     );
   }
   if (typeof raw.savedAtMs !== "number") return malformed("savedAtMs");
 
-  const state = raw.state;
-  if (!isRecord(state)) return malformed("state");
+  const original = raw.state;
+  if (!isRecord(original)) return malformed("state");
+  const state = original;
   if (typeof state.gameId !== "string") return malformed("state.gameId");
   if (typeof state.hostId !== "string") return malformed("state.hostId");
   if (typeof state.seq !== "number") return malformed("state.seq");
@@ -344,7 +391,7 @@ export function parseSnapshot(raw: unknown): Result<GameSnapshot> {
 
   if (!Array.isArray(state.players)) return malformed("state.players");
   for (const [i, player] of state.players.entries()) {
-    const problem = checkPlayer(player, i);
+    const problem = checkPlayer(player, i, version);
     if (problem) return malformed(problem);
   }
 
@@ -391,7 +438,7 @@ export function parseSnapshot(raw: unknown): Result<GameSnapshot> {
   }
 
   // The census. Cheap, and it is the single guard against the whole audit #75/#121 family.
-  const typed = state as unknown as GameState;
+  const typed = (version === 1 ? upgradeFromV1(state) : state) as unknown as GameState;
   const problems = auditCensus(
     typed.cards,
     typed.players.map((p) => ({
@@ -418,8 +465,9 @@ export function parseSnapshot(raw: unknown): Result<GameSnapshot> {
 
   // Every validation above has run; this is the one cast, and it is the reason
   // `src/persistence` never needs one (audit #98/#102: "must never write `raw as GameSnapshot`").
+  // An upgraded save IS a current-version snapshot now, and says so.
   return ok({
-    schemaVersion: raw.schemaVersion,
+    schemaVersion: SNAPSHOT_SCHEMA_VERSION,
     savedAtMs: raw.savedAtMs,
     state: typed,
   });

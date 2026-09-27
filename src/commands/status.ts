@@ -14,12 +14,15 @@
  * short ephemeral acknowledgement, because a Discord interaction response can be nothing else.
  *
  * The embed itself is `render.statusEmbed`, shared with the render pipeline and with the
- * router's generic Refresh button, so the board looks the same wherever it is posted from.
+ * router's generic Refresh button, so the board looks the same wherever it is posted from. Where
+ * the host can draw it, the tribe board picture rides along as the embed's image: everyone's
+ * castaways, grayed out as they are voted out.
  */
 
 import { SlashCommandBuilder, type EmbedBuilder } from "discord.js";
 
 import type { SurvivorConfig } from "../config.js";
+import { boardImage } from "../discord/board.js";
 import type { Command, CommandContext } from "../discord/interactions.js";
 import { lobbyEmbed, statusEmbed } from "../discord/render.js";
 import type { GameView } from "../engine/types.js";
@@ -56,12 +59,22 @@ const status: Command = {
     // correctly for one — including when nobody has joined yet.
     const inLobby = view.status === "lobby";
     const embed = inLobby ? lobbyEmbed(view, ctx.config) : boardEmbed(view, ctx.config);
+    const image = inLobby
+      ? null
+      : await boardImage(
+          view,
+          ctx.config,
+          { portraits: (playerId, index) => session.portrait(playerId, index) },
+          ctx.log,
+        );
+    if (image !== null) embed.setImage(image.url);
 
     const posted = await ctx.reply.announce({
       content: inLobby
         ? "This channel's game has not begun yet — the host presses **Begin** on the lobby message."
         : undefined,
       embeds: [embed],
+      files: image === null ? undefined : [image.file],
     });
 
     // The board is public; the receipt for typing the command is not.

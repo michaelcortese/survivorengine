@@ -118,9 +118,10 @@ function setup(config: SurvivorConfig): EmbedBuilder {
       [
         `${bold("1. Open a lobby.")} \`/survivor start\` posts a lobby in this channel. One game per channel, always.`,
         `${bold("2. Everyone joins.")} Press **Join** on the lobby message and pick a colour. ${limits.minPlayers}–${limits.maxPlayers} players.`,
-        `${bold("3. The host presses Begin.")} Hands are dealt, the deck is built for your player count, and the first player is chosen.`,
+        `${bold("3. Pick your castaways.")} Press **Castaways** (or run \`/castaways\`) to name the ${quantity(limits.characterCardsPerPlayer, "Survivor player")} who are your lives — anyone you like, with a photo if you want. Leave one blank and you are dealt a legend.`,
+        `${bold("4. The host presses Begin.")} Hands are dealt, the deck is built for your player count, and the first player is chosen.`,
         "",
-        `${bold("Your torches.")} You hold ${quantity(limits.characterCardsPerPlayer, "Survivor Character Card")}. Losing one at a council flips it face down; losing the last one puts you on the jury, where you still choose the winner.`,
+        `${bold("Your torches.")} You hold ${quantity(limits.characterCardsPerPlayer, "Survivor Character Card")}, each with one of your castaways on it. Losing a council turns your first castaway over to "VOTED OUT" — grayed out on the tribe board, and still face up for everyone to see; losing the last one puts you on the jury, where you still choose the winner.`,
         "",
         `${bold("If the bot restarts")} mid-game, nothing is lost — \`/survivor resume\` brings this channel's game back exactly where it was.`,
         `${bold("If the host has to go,")} the role passes to the next player by itself — or the host hands it over first with \`/survivor host <player>\`.`,
@@ -245,6 +246,7 @@ function commands(): EmbedBuilder {
           "`/survivor resume` — bring back this channel's game after a restart",
           "`/survivor host <player>` — hand the host role to somebody else (host only)",
           "`/survivor abandon` — end this channel's game (host or a server moderator, with a confirmation)",
+          "`/castaways` — name the two castaways who are your lives, with photos if you like",
         ].join("\n"),
       },
       {
@@ -260,7 +262,7 @@ function commands(): EmbedBuilder {
         name: "Knowing what is going on",
         value: [
           "`/hand` — your cards, privately",
-          "`/status` — the public board: turn, torches, hand sizes, councils to come",
+          "`/status` — the public board: turn, torches, castaways, hand sizes, councils to come",
           "`/card <name>` — look up any card's rules",
           "`/help [topic]` — this",
         ].join("\n"),

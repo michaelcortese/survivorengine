@@ -128,6 +128,10 @@ export type GameErrorCode =
   | "not_in_game"
   | "player_eliminated"
   | "player_left_game"
+  // castaways: who each Survivor Character Card depicts. See `engine/castaways.ts`.
+  | "castaway_name_invalid"
+  | "castaway_name_taken"
+  | "castaway_voted_out"
   // authorization. Audit #24: "restrict to the game starter or a mod — any player must not be
   // able to boot a rival." `abandon_game` and `remove_player` are host-gated.
   | "not_authorized"
@@ -472,6 +476,15 @@ export interface Player {
   readonly leftAtSeq: number | null;
   /** Discord presence, not game state. A disconnected player still holds cards and votes. */
   readonly connected: boolean;
+  /**
+   * Who each Survivor Character Card depicts, in the order the lives are lost: `castaways[i]`
+   * is on `characterCards[i]`, so castaway #1 is the first to be voted out. Exactly
+   * `limits.characterCardsPerPlayer` entries from the moment the player joins.
+   *
+   * `null` means "deal me a legend": allowed only in the lobby, and filled in by `start_game`
+   * (`dealCastaways`). Public, like the cards themselves.
+   */
+  readonly castaways: readonly (string | null)[];
 }
 
 /**
@@ -1355,8 +1368,14 @@ export interface GameState {
   readonly startedAtMs: number | null;
 }
 
-/** The format version of `GameSnapshot`. Bump on any breaking change to `GameState`. */
-export const SNAPSHOT_SCHEMA_VERSION = 1;
+/**
+ * The format version of `GameSnapshot`. Bump on any breaking change to `GameState`, and teach
+ * `parseSnapshot` to read the version before it.
+ *
+ *   1  the first versioned format.
+ *   2  `Player.castaways`. A version-1 save is upgraded as it is read: see `upgradeFromV1`.
+ */
+export const SNAPSHOT_SCHEMA_VERSION = 2;
 
 /**
  * A versioned, self-describing save. Audit #98/#102: the old format had no schema version and
@@ -1408,6 +1427,19 @@ export interface PublicPlayerView {
   readonly isCouncilLeader: boolean;
   readonly isHost: boolean;
   readonly connected: boolean;
+  /** One per Survivor Character Card, in the order they are lost. */
+  readonly castaways: readonly CastawayView[];
+}
+
+/** One castaway, as the table sees it: face up, or turned over to "VOTED OUT". */
+export interface CastawayView {
+  /** Null only in the lobby, for a player who has not picked: they are dealt a legend at start. */
+  readonly name: string | null;
+  /** The Survivor Character Card this castaway is on. Null in the lobby, before the deal. */
+  readonly cardUid: CardUid | null;
+  readonly votedOut: boolean;
+  /** The seq of the flip, so a board can pick out the castaways lost at the council just held. */
+  readonly votedOutAtSeq: number | null;
 }
 
 /**
@@ -1552,6 +1584,18 @@ export interface LeaveGameAction extends ActionBase {
 export interface ChooseColorAction extends ActionBase {
   readonly type: "choose_color";
   readonly color: PlayerColor;
+}
+/**
+ * Name your castaways — who is on each of your two Survivor Character Cards.
+ *
+ * `castaways` is the WHOLE list, one entry per card, in the order the lives are lost. In the
+ * lobby an entry may be `null` ("deal me a legend"); once the game has begun every entry is a
+ * name, and a castaway already voted out cannot be renamed. Names must already be in the form
+ * `sanitizeCastawayName` produces, and no two castaways at the table may share one.
+ */
+export interface NameCastawaysAction extends ActionBase {
+  readonly type: "name_castaways";
+  readonly castaways: readonly (string | null)[];
 }
 export interface StartGameAction extends ActionBase {
   readonly type: "start_game";
@@ -1793,6 +1837,7 @@ export type Action =
   | JoinGameAction
   | LeaveGameAction
   | ChooseColorAction
+  | NameCastawaysAction
   | StartGameAction
   | AbandonGameAction
   | RemovePlayerAction

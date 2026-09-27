@@ -218,6 +218,7 @@ const OUT_OF_SCOPE: ReadonlySet<ActionKind> = new Set<ActionKind>([
   "join_game",
   "leave_game",
   "choose_color",
+  "name_castaways",
   "start_game",
   "abandon_game",
   "remove_player",
@@ -464,6 +465,7 @@ function buildAction(
     case "join_game":
     case "leave_game":
     case "choose_color":
+    case "name_castaways":
     case "start_game":
     case "abandon_game":
     case "remove_player":
@@ -878,6 +880,24 @@ function galleryEvents(view: GameView, state: GameState): readonly GameEvent[] {
     reason: "host_removed",
   });
   push({ type: "color_chosen", playerId: a, color: "teal" as PlayerColor });
+  push({
+    type: "castaways_named",
+    playerId: a,
+    castaways: ["Parvati Shallow", null],
+    reason: "picked",
+  });
+  push({
+    type: "castaways_named",
+    playerId: a,
+    castaways: ["Parvati Shallow", "Boston Rob Mariano"],
+    reason: "dealt",
+  });
+  push({
+    type: "castaways_named",
+    playerId: b,
+    castaways: ["Sandra Diaz-Twine", "Tony Vlachos"],
+    reason: "renamed",
+  });
   push({ type: "player_connection_changed", playerId: a, connected: false });
   push({ type: "player_connection_changed", playerId: a, connected: true });
   push({
@@ -1409,6 +1429,7 @@ function galleryEvents(view: GameView, state: GameState): readonly GameEvent[] {
       type: "character_card_flipped",
       playerId: b,
       cardUid: uidOf(CardKind.SurvivorCharacter),
+      castaway: charactersRemaining === 1 ? "Sandra Diaz-Twine" : "Tony Vlachos",
       charactersRemaining,
       votesReceived: 3,
       councilId,

@@ -73,7 +73,7 @@ const HAND_PAGE_ROUTE = `${UI_INTENT.Refresh}:${HAND_PAGE_FLOW}`;
 /**
  * How a legal action is actually reached, so the list is instructions rather than vocabulary.
  *
- * `Record<ActionKind, string>` on purpose: a 39th action cannot be added without deciding what
+ * `Record<ActionKind, string>` on purpose: a 41st action cannot be added without deciding what
  * a player is supposed to press, which is audit #82 ("the message names a command that does
  * not exist") pointed at its own root cause. Every command named here exists in the surface
  * `/help commands` lists.
@@ -82,6 +82,7 @@ const ACTION_HINT: Readonly<Record<ActionKind, string>> = {
   join_game: "the lobby message",
   leave_game: "the lobby message",
   choose_color: "the lobby message",
+  name_castaways: "`/castaways`, or the lobby message",
   start_game: "the lobby message",
   abandon_game: "`/survivor abandon`",
   remove_player: "the lobby message",

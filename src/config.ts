@@ -382,6 +382,12 @@ export interface DiscordConfig {
   readonly componentCollectorTimeout: Milliseconds;
   /** Audit #90: card art was pasted as bare URLs and vanished without Embed Links. */
   readonly renderCardArt: boolean;
+  /**
+   * Draw the tribe board — everyone's castaways, grayed out as they are voted out — as a picture
+   * when the game begins, after each vote-out and at the end, and on `/status`. Needs the
+   * optional `@napi-rs/canvas`; without it the board is text whatever this says.
+   */
+  readonly boardImages: boolean;
   /** Prefix for every custom_id we mint, so collectors can be scoped by game id. */
   readonly customIdPrefix: string;
   /** Audit #41/#43: there was no logging or ops story at all. See ARCHITECTURE.md §10. */
@@ -502,6 +508,7 @@ export const DEFAULT_CONFIG: SurvivorConfig = {
     interactionTokenLifetime: 15 * MINUTE,
     componentCollectorTimeout: 5 * MINUTE,
     renderCardArt: true,
+    boardImages: true,
     customIdPrefix: "sv",
     logLevel: "info",
   },
@@ -791,6 +798,7 @@ export function loadConfig(env: Environment): SurvivorConfig {
     discord: {
       ...d.discord,
       renderCardArt: readBool(env, "RENDER_CARD_ART", d.discord.renderCardArt),
+      boardImages: readBool(env, "BOARD_IMAGES", d.discord.boardImages),
       autoDeferAfter: readDuration(env, "AUTO_DEFER_MS", d.discord.autoDeferAfter),
       componentCollectorTimeout: readDuration(
         env,

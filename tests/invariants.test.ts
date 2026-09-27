@@ -219,6 +219,7 @@ const OUT_OF_SCOPE: ReadonlySet<ActionKind> = new Set<ActionKind>([
   "join_game",
   "leave_game",
   "choose_color",
+  "name_castaways",
   "start_game",
   "abandon_game",
   "remove_player",
@@ -465,10 +466,11 @@ function buildAction(
     }
     // The lobby actions are dealt by the harness itself (join / start), or are deliberately
     // never taken by the autopilot (`abandon_game` would end the run early). Listed rather than
-    // left to the `default` so that a 40th ActionKind is a build failure here too.
+    // left to the `default` so that a 41st ActionKind is a build failure here too.
     case "join_game":
     case "leave_game":
     case "choose_color":
+    case "name_castaways":
     case "start_game":
     case "abandon_game":
     case "remove_player":
@@ -488,7 +490,7 @@ const GHOST_CARD = asCardUid("c999:not-a-real-card");
 const GHOST_PENDING = asPendingId("pend-not-a-real-window");
 
 /**
- * Every one of the engine's action types, attempted by a player who is not in the game. All 39
+ * Every one of the engine's action types, attempted by a player who is not in the game. All 40
  * must be refused, and none may leave a fingerprint on the state.
  */
 function ghostProbes(state: GameState): readonly Action[] {
@@ -499,6 +501,7 @@ function ghostProbes(state: GameState): readonly Action[] {
     { type: "join_game", actor: GHOST, displayName: "Ghost" },
     { type: "leave_game", actor: GHOST },
     { type: "choose_color", actor: GHOST, color: "red" },
+    { type: "name_castaways", actor: GHOST, castaways: ["Ghost", null] },
     { type: "start_game", actor: GHOST },
     { type: "abandon_game", actor: GHOST },
     { type: "remove_player", actor: GHOST, target: someone },
@@ -1301,7 +1304,7 @@ describe("global invariants under fuzzing", () => {
     expect(RUNS.reduce((n, r) => n + r.rejectionProbes, 0)).toBeGreaterThan(1000);
   });
 
-  it("a player who is not in the game cannot perform any of the 39 actions", () => {
+  it("a player who is not in the game cannot perform any of the 40 actions", () => {
     expectNoViolations("illegal_action_accepted");
   });
 
@@ -1391,12 +1394,12 @@ describe("invariants that hold from the first moment of a game", () => {
     }
   });
 
-  it("every one of the 39 action types is refused for a player who is not in the game, and changes nothing", () => {
+  it("every one of the 40 action types is refused for a player who is not in the game, and changes nothing", () => {
     const { game } = startedGame(4, 777);
     const before = JSON.stringify(game.state());
     const probes = ghostProbes(game.state());
     // The whole Action union, not a sample of it.
-    expect(new Set(probes.map((p) => p.type)).size).toBe(39);
+    expect(new Set(probes.map((p) => p.type)).size).toBe(40);
     let clock = 1_800_000_000_000;
     for (const probe of probes) {
       const outcome = game.dispatch(probe, (clock += 1000));

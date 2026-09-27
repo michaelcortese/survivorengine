@@ -34,6 +34,7 @@
   "author": "Michael Cortese",
   "license": "ISC",
   "dependencies": {
+    "@napi-rs/canvas": "^1.0.9",
     "discord.js": "^14.21.0",
     "dotenv": "^17.2.0"
   },

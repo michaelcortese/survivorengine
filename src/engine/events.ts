@@ -141,6 +141,20 @@ interface ColorChosen {
   readonly color: PlayerColor;
 }
 
+/**
+ * A player's castaways, as they now stand — the whole list, in the order the lives are lost.
+ * Public: the Survivor Character Cards are face up on the table.
+ *
+ * `picked` in the lobby (a `null` is "deal me a legend"); `dealt` once per player when the game
+ * begins, with every blank filled; `renamed` when a player changes one still in the game.
+ */
+interface CastawaysNamed {
+  readonly type: "castaways_named";
+  readonly playerId: PlayerId;
+  readonly castaways: readonly (string | null)[];
+  readonly reason: "picked" | "dealt" | "renamed";
+}
+
 interface PlayerConnectionChanged {
   readonly type: "player_connection_changed";
   readonly playerId: PlayerId;
@@ -782,6 +796,8 @@ interface CharacterCardFlipped {
   readonly type: "character_card_flipped";
   readonly playerId: PlayerId;
   readonly cardUid: CardUid;
+  /** Who was on the card: the castaway just voted out. */
+  readonly castaway: string | null;
   readonly charactersRemaining: number;
   readonly votesReceived: number;
   readonly councilId: CouncilId | null;
@@ -1049,6 +1065,7 @@ export type GameEventBody =
   | PlayerRemoved
   | HostChanged
   | ColorChosen
+  | CastawaysNamed
   | PlayerConnectionChanged
   | GameStarted
   | DeckBuilt
@@ -1181,6 +1198,7 @@ export const EVENT_AUDIENCE_POLICY: Readonly<Record<GameEventType, EventVisibili
   player_removed: "public",
   host_changed: "public",
   color_chosen: "public",
+  castaways_named: "public",
   player_connection_changed: "public",
   game_started: "public",
   deck_built: "public",

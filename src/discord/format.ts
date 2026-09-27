@@ -107,6 +107,18 @@ export const mentionList = (
   empty = "nobody",
 ): string => oxford(playerIds.map(mention), conjunction, empty);
 
+/**
+ * "**Parvati Shallow** and **Boston Rob Mariano**", with a blank shown as the legend it will be.
+ * Names print as they are: the engine accepts only what `sanitizeCastawayName` produces, which
+ * cannot mention, format or link.
+ */
+export const castawayList = (names: readonly (string | null)[]): string =>
+  oxford(
+    names.map((name) =>
+      name === null ? italic("a legend dealt at the start") : bold(name),
+    ),
+  );
+
 /** "Chris'" not "Chris's"; "Alex's" not "Alex'". */
 export function possessive(name: string): string {
   return name.endsWith("s") || name.endsWith("S") ? `${name}'` : `${name}'s`;

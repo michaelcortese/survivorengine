@@ -1,6 +1,7 @@
 /**
- * Filesystem persistence. The ONLY module in the codebase that may import `node:fs`
- * (ARCHITECTURE.md §7); `src/index.ts` is the only other file allowed near a path.
+ * Filesystem persistence. With `portraits.ts` beside it, the only code in the codebase that may
+ * import `node:fs` (ARCHITECTURE.md §7); `src/index.ts` is the only other file allowed near a
+ * path.
  *
  * Four properties, each answering a specific audit finding:
  *

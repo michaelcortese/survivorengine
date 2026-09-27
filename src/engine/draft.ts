@@ -73,6 +73,7 @@ export interface DraftPlayer {
   eliminatedAtSeq: number | null;
   leftAtSeq: number | null;
   connected: boolean;
+  castaways: (string | null)[];
 }
 
 /** The six zones, mutable. Same assignability trick as `DraftPlayer`. */
@@ -130,6 +131,7 @@ const clonePlayer = (p: Player): DraftPlayer => ({
   eliminatedAtSeq: p.eliminatedAtSeq,
   leftAtSeq: p.leftAtSeq,
   connected: p.connected,
+  castaways: [...p.castaways],
 });
 
 /**

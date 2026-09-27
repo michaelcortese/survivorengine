@@ -89,7 +89,7 @@ const FIELD_COUNT = 6;
 /**
  * Every engine action, as a short code.
  *
- * `Record<ActionKind, string>` is the point: a 39th action is a COMPILE ERROR here, so no
+ * `Record<ActionKind, string>` is the point: a 41st action is a COMPILE ERROR here, so no
  * action can ever reach the UI without a code. Audit #74 is the same failure one layer down —
  * 13 of 47 deck cards had no command implementation at all and nothing noticed.
  *
@@ -100,6 +100,7 @@ export const ACTION_CODE: Readonly<Record<ActionKind, string>> = {
   join_game: "jg",
   leave_game: "lg",
   choose_color: "cc",
+  name_castaways: "nc",
   start_game: "sg",
   abandon_game: "ab",
   remove_player: "rp",
@@ -202,6 +203,7 @@ export const ACTION_LABEL: Readonly<Record<ActionKind, string>> = {
   join_game: "Join",
   leave_game: "Leave",
   choose_color: "Pick a colour",
+  name_castaways: "Pick your castaways",
   start_game: "Begin the game",
   abandon_game: "Abandon this game",
   remove_player: "Remove a player",

@@ -20,14 +20,17 @@ src/
     events.ts          the GameEvent union — what happened, never how to say it
     cards.ts           the card catalog + deck composition tables (data only)
     rng.ts             seedable PRNG; the only stateful thing in the engine
+    castaways.ts       castaway names: the legends roster, the name rules, the deal at start
     card.ts  player.ts  deck.ts  game.ts  tribal.ts  final.ts  challenges.ts   (later phase)
   discord/             the ONLY place discord.js appears
     registry.ts        GameId -> Game, keyed per channel
     renderers/         GameEvent -> message / embed / component
     ui/                buttons, selects, modals, custom_id encoding
+    board.ts           the tribe board model, its text, and its picture as an attachment
+    board-image.ts     the picture itself (@napi-rs/canvas, optional), and portrait cropping
   commands/            slash command definitions; translate interactions into Actions
   events/              discord.js gateway event handlers
-  persistence/         snapshot read/write; the only place node:fs appears
+  persistence/         snapshot read/write and castaway portraits; the only place node:fs appears
   tests/               vitest; drives the engine directly, no Discord anywhere
 ```
 
@@ -462,6 +465,16 @@ player's hand awaiting an Inheritance claim. The full objects are reachable only
 and `privateView(viewer)`. One test asserts that `JSON.stringify(view())` contains no
 unrevealed vote target and no un-filled challenge submission.
 
+### The tribe board
+
+After narrating anything that changes who is still in — the game beginning, a castaway voted
+out, the game won — the session posts the tribe board: a picture of every player's castaways,
+grayed out and stamped once voted out, with the ones just lost glowing red. It is drawn from
+the public view alone, after the narration and before any window's prompt, and only as a
+picture: the words for all three moments are already in the narration, so a host where
+`@napi-rs/canvas` cannot load (or `SURVIVOR_BOARD_IMAGES=false`) simply posts nothing extra.
+`/status` and `/survivor resume` attach the same picture to the status board.
+
 ### Timers
 
 The Discord layer keeps **one** timer per game, set to `game.nextDeadline()`, which fires
@@ -540,6 +553,10 @@ Why this shape, defect by defect:
 
 ## 7. Persistence
 
+A save is version 2. Version 2 added `Player.castaways`; `parseSnapshot` still reads version 1
+and upgrades it as it goes — a lobby gets blanks, a game in progress gets legends dealt from the
+game's own seed, so the same old save always comes back with the same castaways.
+
 ```
 GameState ──snapshot()──▶ GameSnapshot { schemaVersion, savedAtMs, state } ──JSON──▶ disk
    ▲                                                                                  │
@@ -609,6 +626,12 @@ GameState ──snapshot()──▶ GameSnapshot { schemaVersion, savedAtMs, sta
   it ships as a test.
 
 `src/persistence/` is the only directory besides the entry point that may import `node:fs`.
+
+**Castaway portraits are not in the snapshot.** A photo is decoration on a castaway whose NAME
+is the state, and a dozen of them would make every autosave megabytes. `persistence/portraits.ts`
+keeps them beside the saves, under `portraits/<gameId>/`, as the small JPEGs `preparePortrait`
+drew — never the uploaded bytes — with the same id validation as a save. They are loaded on a
+restore and deleted with the save when the game ends.
 
 ---
 

@@ -33,6 +33,8 @@ export function createPlayer(params: {
   readonly displayName: string;
   readonly color: PlayerColor;
   readonly seat: number;
+  /** `limits.characterCardsPerPlayer`: one castaway per Survivor Character Card. */
+  readonly castawaySlots: number;
 }): DraftPlayer {
   return {
     id: params.id,
@@ -49,6 +51,8 @@ export function createPlayer(params: {
     eliminatedAtSeq: null,
     leftAtSeq: null,
     connected: true,
+    // Unpicked until the player names them; `start_game` deals a legend into every blank.
+    castaways: Array.from({ length: params.castawaySlots }, () => null),
   };
 }
 

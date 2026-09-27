@@ -30,6 +30,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Client, EmbedBuilder, GuildTextBasedChannel } from "discord.js";
 
 import cardCommand from "../src/commands/card.js";
+import castawaysCommand from "../src/commands/castaways.js";
 import councilCommand from "../src/commands/council.js";
 import drawCommand from "../src/commands/draw.js";
 import handCommand from "../src/commands/hand.js";
@@ -80,6 +81,7 @@ const PLAYERS = [
 
 const COMMANDS: readonly Command[] = [
   cardCommand,
+  castawaysCommand,
   councilCommand,
   drawCommand,
   handCommand,
@@ -98,6 +100,9 @@ const KINDS = Object.keys(TIMINGS.pendingWindows) as PendingKind[];
 const CONFIG: SurvivorConfig = withOverrides(DEFAULT_CONFIG, {
   autosave: { enabled: false },
   engine: { deck: { rngSeed: SEED } },
+  // The board picture renders on real async work, and this file walks a fake clock; the board
+  // has its own tests.
+  discord: { boardImages: false },
 });
 
 interface Sent {

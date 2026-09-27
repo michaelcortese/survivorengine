@@ -52,6 +52,7 @@ import { SessionRegistry, type WindowPrompter } from "./discord/registry.js";
 import type { PendingKind } from "./engine/types.js";
 import { assertIntentCodesAreDisjoint } from "./discord/ui.js";
 import { createLogger, describeCause, type Logger } from "./logger.js";
+import { PortraitStore } from "./persistence/portraits.js";
 import { SaveStore } from "./persistence/store.js";
 
 // ---------------------------------------------------------------------------
@@ -433,6 +434,7 @@ async function main(): Promise<void> {
     logger: log,
     client,
     prompter: loadedCommands.prompter,
+    portraits: new PortraitStore({ config: config.autosave, logger: log }),
   });
 
   const bot: BotContext = {

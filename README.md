@@ -45,8 +45,21 @@ own games at the same time.
 
 ```
 /survivor start     →  lobby appears, everyone hits Join and picks a colour
+                    →  everyone hits Castaways and names the two Survivor players who are their lives
                     →  host hits Begin (3–6 players)
 ```
+
+### Your castaways
+
+Your two Survivor Character Cards are your lives, and each one carries a **castaway** — Boston
+Rob, Parvati, your cousin, anyone. Castaway #1 is the first to go if you're voted out; castaway
+#2 is your last life. Press **Castaways** on the lobby card (or run `/castaways`) to pick them,
+with suggestions from a roster of legends as you type. Leave one blank and you're dealt a
+legend at random. `/castaways first_photo:` and `second_photo:` put a photo on them.
+
+The **tribe board** is a picture of everyone's castaways. It's posted when the game begins,
+after every vote-out and at the end, and `/status` carries it too. A castaway who's been voted
+out is grayed out and stamped VOTED OUT; the one voted out just now glows red.
 
 ### Your turn is three steps, in order
 
@@ -105,7 +118,8 @@ Then the jury votes **for** a winner, all at once. On a tie, the leader decides.
 
 | Command                  |                                                                                       |
 | ------------------------ | ------------------------------------------------------------------------------------- |
-| `/status`                | The board: turn, phase, everyone's hand size and torches, cards left                  |
+| `/status`                | The board: turn, phase, castaways, everyone's hand size and torches, cards left       |
+| `/castaways`             | Name your two castaways — bare, it opens a form; with options, it takes photos too    |
 | `/hand`                  | Your cards, privately, with the rules text for each                                   |
 | `/council`               | The Tribal Council panel — where the council is, and the leader's next step           |
 | `/card <name>`           | The Survival Guide — any card's official text, with autocomplete                      |
@@ -114,9 +128,9 @@ Then the jury votes **for** a winner, all at once. On a tie, the leader decides.
 | `/survivor abandon`      | End the game in this channel (host or a Manage Server moderator, with a confirmation) |
 | `/survivor resume`       | Restore the game after a restart                                                      |
 
-That is the whole surface: eleven slash commands (`/card`, `/council`, `/draw`, `/hand`,
-`/help`, `/play`, `/skip`, `/status`, `/steal`, `/survivor`, `/vote`), with `/survivor`
-carrying `start`, `host`, `abandon` and `resume`.
+That is the whole surface: twelve slash commands (`/card`, `/castaways`, `/council`, `/draw`,
+`/hand`, `/help`, `/play`, `/skip`, `/status`, `/steal`, `/survivor`, `/vote`), with
+`/survivor` carrying `start`, `host`, `abandon` and `resume`.
 
 ---
 
@@ -124,7 +138,7 @@ carrying `start`, `host`, `abandon` and `resume`.
 
 ```bash
 npm run dev         # watch mode
-npm test            # 675 tests
+npm test            # 734 tests
 npm run check       # typecheck + lint + engine purity + test — what CI runs
 ```
 
@@ -133,7 +147,7 @@ npm run check       # typecheck + lint + engine purity + test — what CI runs
 The rules live in a **pure engine** under `src/engine/` that has never heard of Discord. It
 imports no `discord.js`, touches no filesystem, holds no timers, and never reads the clock. You
 give it an action and a timestamp; it gives you back a new state and a list of events. That is
-why the rules are testable at all, and why 675 tests can drive thousands of complete games in
+why the rules are testable at all, and why 734 tests can drive thousands of complete games in
 under thirty seconds. `npm run engine:purity` fails the build if anything under `src/engine/`
 ever acquires a `discord.js` import, a node builtin, a clock reading or a `Math.random()`.
 
@@ -146,11 +160,12 @@ cannot be rendered into a public channel by accident.
 src/
   config.ts        every tunable in one place
   engine/          the rules. pure, deterministic, seeded, fully tested
-  discord/         registry, renderer, components, formatting
-  persistence/     atomic saves, one file per channel
+  discord/         registry, renderer, components, formatting, the tribe board picture
+  persistence/     atomic saves, one file per channel; castaway portraits beside them
   commands/        thin adapters — they dispatch and render, they never judge
   events/          interaction routing
-tests/             15 suites, 675 tests
+tests/             19 suites, 734 tests
+assets/fonts/      Oswald, for the tribe board (SIL Open Font License, see OFL.txt)
 docs/
   RULES.md         the official rulebook + Survival Guide, transcribed
   ARCHITECTURE.md  the design, and what each decision prevents
@@ -161,6 +176,12 @@ Games are keyed per channel, saved atomically after every action, and restored o
 A restore rebases every open window by however long the bot was away, so a redeploy does not
 forfeit a 20-second Sorry For You before anyone can press it. Shuffles are seeded, so a game can
 be replayed exactly — set `SURVIVOR_RNG_SEED` to pin one.
+
+The tribe board picture is drawn with [`@napi-rs/canvas`][canvas], which ships prebuilt
+binaries for Linux, macOS and Windows. Where it can't load, the bot says so in its log and posts
+the board as text instead; `SURVIVOR_BOARD_IMAGES=false` turns the picture off on purpose.
+
+[canvas]: https://github.com/Brooooooklyn/canvas
 
 ### House rules
 

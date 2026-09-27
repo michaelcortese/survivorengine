@@ -92,6 +92,7 @@ export function flipCharacterCard(
     type: "character_card_flipped",
     playerId: player.id,
     cardUid: card.uid,
+    castaway: player.castaways[at] ?? null,
     charactersRemaining: charactersRemaining(player),
     votesReceived,
     councilId: options.councilId,

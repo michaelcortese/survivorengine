@@ -23,10 +23,11 @@
  * which is what lets the council's dramatic pauses exist at all without blocking anything.
  *
  * The same queue posts the PROMPT for every window a mutation opened — the buttons that answer
- * it — straight after the narration that explains it, whether a click or a timer opened it.
+ * it — straight after the narration that explains it, whether a click or a timer opened it; and
+ * the TRIBE BOARD, the picture of everyone's castaways, whenever one of them is voted out.
  */
 
-import type { Client, GuildTextBasedChannel } from "discord.js";
+import type { Client, GuildTextBasedChannel, Message } from "discord.js";
 
 import type { SurvivorConfig } from "../config.js";
 import { createGame, restoreGame } from "../engine/game.js";
@@ -47,7 +48,9 @@ import type {
 } from "../engine/types.js";
 import { asGameId, err, ok, statusOf } from "../engine/types.js";
 import { describeCause, type Logger } from "../logger.js";
+import { portraitKey, type PortraitStore } from "../persistence/portraits.js";
 import type { SaveStore } from "../persistence/store.js";
+import { boardPost, flippedIn } from "./board.js";
 import { bold } from "./format.js";
 import type { Payload } from "./interactions.js";
 import {
@@ -161,6 +164,8 @@ export interface SessionDeps {
   readonly fallbackCourier: PrivateCourier;
   /** Builds the prompt for each window a mutation opens. Null posts none (tests, tooling). */
   readonly prompter: WindowPrompter | null;
+  /** Where castaway portraits are kept between restarts. Null keeps them in memory only. */
+  readonly portraits: PortraitStore | null;
   /** Called once, when the game reaches a terminal stage and the entry should be dropped. */
   readonly onRetire: (session: GameSession) => void;
   /**
@@ -186,8 +191,17 @@ export class GameSession {
   readonly #log: Logger;
   readonly #fallbackCourier: PrivateCourier;
   readonly #prompter: WindowPrompter | null;
+  readonly #portraitStore: PortraitStore | null;
+  /** Castaway portraits, by `portraitKey`. Decoration, so never part of the snapshot. */
+  readonly #portraits = new Map<string, Buffer>();
   readonly #onRetire: (session: GameSession) => void;
   readonly #onChannelLost: (session: GameSession) => void;
+
+  /**
+   * The lobby card in the channel, so a lobby change made somewhere other than its own buttons
+   * (a `/castaways` pick) can re-render it. In memory only: `/survivor resume` posts a new one.
+   */
+  lobbyCard: Message | null = null;
 
   #timer: NodeJS.Timeout | null = null;
   /** The FIFO that keeps messages in order without ever blocking a dispatch. */
@@ -215,6 +229,7 @@ export class GameSession {
     this.#store = deps.store;
     this.#fallbackCourier = deps.fallbackCourier;
     this.#prompter = deps.prompter;
+    this.#portraitStore = deps.portraits;
     this.#onRetire = deps.onRetire;
     this.#onChannelLost = deps.onChannelLost;
     this.#log = deps.logger.child({ gameId: deps.game.id, channel: deps.channel.id });
@@ -281,6 +296,44 @@ export class GameSession {
   /** Is this player at this table at all? Used by every "that prompt isn't yours" guard. */
   hasPlayer(playerId: PlayerId): boolean {
     return this.#game.state().players.some((player) => player.id === playerId);
+  }
+
+  // -------------------------------------------------------------------------
+  // Castaway portraits
+  // -------------------------------------------------------------------------
+
+  /** The portrait on one of a player's castaways (index 0 is castaway #1), if there is one. */
+  portrait(playerId: PlayerId, index: number): Buffer | null {
+    return this.#portraits.get(portraitKey(playerId, index)) ?? null;
+  }
+
+  /**
+   * Put a portrait on a castaway, or take it off with `null`. The bytes must already be what
+   * `preparePortrait` produced. Returns false when it could not be kept past a restart.
+   */
+  async setPortrait(
+    playerId: PlayerId,
+    index: number,
+    bytes: Buffer | null,
+  ): Promise<boolean> {
+    const key = portraitKey(playerId, index);
+    if (bytes === null) {
+      if (!this.#portraits.delete(key)) return true;
+      await this.#portraitStore?.remove(this.gameId, playerId, index);
+      return true;
+    }
+    this.#portraits.set(key, bytes);
+    return (
+      (await this.#portraitStore?.save(this.gameId, playerId, index, bytes)) ?? true
+    );
+  }
+
+  /** Bring back the portraits saved for this game. The registry calls this on a restore. */
+  async loadPortraits(): Promise<void> {
+    if (this.#portraitStore === null) return;
+    for (const [key, bytes] of await this.#portraitStore.load(this.gameId)) {
+      this.#portraits.set(key, bytes);
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -405,6 +458,10 @@ export class GameSession {
         // committed and saved; only the words are lost.
         this.#log.error("rendering failed", cause);
       })
+      .then(() => this.#postBoard(events, ctx.view))
+      .catch((cause: unknown) => {
+        this.#log.error("posting the tribe board failed", cause);
+      })
       // AFTER the narration, never before it: the Leader's tie-break buttons used to land ahead
       // of the paced vote reveal that explains why there is a tie at all.
       .then(() => this.#promptWindows(windows, courier))
@@ -461,6 +518,42 @@ export class GameSession {
       },
       pause: (ms) => sleep(Math.max(0, ms)),
     };
+  }
+
+  /**
+   * The tribe board, after the narration of anything that changes who is still in: the game
+   * beginning (everyone's castaways, dealt), a castaway being voted out (glowing red on the
+   * board, grayed out from then on), and the game being won.
+   *
+   * Drawn from the view as it was when the mutation was committed, like the narration, and only
+   * as a picture: the text of all three moments is already in the narration, so on a host that
+   * cannot draw there is nothing to add.
+   */
+  async #postBoard(events: readonly GameEvent[], view: GameView): Promise<void> {
+    if (this.#channelLost) return;
+    if (!events.some((event) => BOARD_MOMENTS.has(event.type))) return;
+    const post = await boardPost(
+      view,
+      this.#config,
+      {
+        justVotedOut: flippedIn(events),
+        portraits: (playerId, index) => this.portrait(playerId, index),
+      },
+      this.#log,
+    );
+    if (post === null) return;
+    try {
+      await this.channel.send({ embeds: [...post.embeds], files: [...post.files] });
+      this.#publishFailures = 0;
+    } catch (cause) {
+      this.#publishFailures += 1;
+      this.#log.error("could not post the tribe board", cause, {
+        consecutiveFailures: this.#publishFailures,
+      });
+      if (this.#publishFailures >= this.#config.discord.maxConsecutivePublishFailures) {
+        this.#loseChannel();
+      }
+    }
   }
 
   /**
@@ -656,11 +749,13 @@ export class GameSession {
     this.#clearTimer();
     this.#log.info("game retired", { status });
 
-    // Drain the render queue FIRST so the winner announcement still goes out, then drop the save.
+    // Drain the render queue FIRST so the winner announcement still goes out, then drop the save
+    // and the portraits with it.
     this.#renderQueue = this.#renderQueue
       .then(async () => {
         this.#store.cancel(this.gameId);
         await this.#store.delete(this.gameId);
+        await this.#portraitStore?.deleteGame(this.gameId);
         this.#onRetire(this);
       })
       .catch((cause: unknown) => {
@@ -681,6 +776,13 @@ export class GameSession {
   }
 }
 
+/** The moments the tribe board is posted after. See `GameSession.#postBoard`. */
+const BOARD_MOMENTS: ReadonlySet<GameEvent["type"]> = new Set<GameEvent["type"]>([
+  "game_started",
+  "character_card_flipped",
+  "winner_declared",
+]);
+
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => {
     const timer = setTimeout(resolve, ms);
@@ -698,6 +800,8 @@ export interface RegistryDeps {
   readonly client: Client;
   /** The commands' window prompts, collected by `index.ts`. Omitted, no prompts are posted. */
   readonly prompter?: WindowPrompter;
+  /** Castaway portraits on disk. Omitted, portraits last only as long as their session. */
+  readonly portraits?: PortraitStore;
 }
 
 export interface CreateSessionParams {
@@ -724,6 +828,7 @@ export class SessionRegistry {
   readonly #client: Client;
   readonly #fallbackCourier: PrivateCourier;
   readonly #prompter: WindowPrompter | null;
+  readonly #portraits: PortraitStore | null;
 
   constructor(deps: RegistryDeps) {
     this.#config = deps.config;
@@ -732,6 +837,7 @@ export class SessionRegistry {
     this.#client = deps.client;
     this.#fallbackCourier = new DirectMessageCourier(deps.client, this.#log);
     this.#prompter = deps.prompter ?? null;
+    this.#portraits = deps.portraits ?? null;
   }
 
   get size(): number {
@@ -808,6 +914,7 @@ export class SessionRegistry {
     if (!game.ok) return game;
 
     const session = this.#adopt(channel, game.value);
+    await session.loadPortraits();
     // `restoreGame` QUEUES a `snapshot_restored` event inside the `Game`, and the engine flushes
     // its queue onto the front of the next dispatch's events — exactly as `createGame` does with
     // `game_created`. There is nothing for the session to flush here, and the line that used to
@@ -864,6 +971,7 @@ export class SessionRegistry {
       logger: this.#log,
       fallbackCourier: this.#fallbackCourier,
       prompter: this.#prompter,
+      portraits: this.#portraits,
       onRetire: (retired) => {
         if (this.#sessions.get(retired.gameId) === retired) {
           this.#sessions.delete(retired.gameId);

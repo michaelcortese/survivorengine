@@ -27,7 +27,8 @@
  * THE LIVE LOBBY. `lobbyPayload()` renders the whole card — embed and components — from the
  * session as it is right now. Every handler below ends by calling it again, so the player list,
  * the colour swatches and the Begin button are always the state the buttons were minted against
- * rather than a stale snapshot from whenever the message was first posted.
+ * rather than a stale snapshot from whenever the message was first posted. The card is also
+ * remembered on the session (`session.lobbyCard`), so `/castaways` can re-render it too.
  */
 
 import { ButtonStyle, SlashCommandBuilder } from "discord.js";
@@ -40,6 +41,7 @@ import type {
   Payload,
 } from "../discord/interactions.js";
 import { ANY_PLAYER } from "../discord/interactions.js";
+import { boardImage } from "../discord/board.js";
 import type { GameSession } from "../discord/registry.js";
 import { lobbyEmbed, statusEmbed } from "../discord/render.js";
 import { bold, colorEmoji, colorLabel, mention, quantity } from "../discord/format.js";
@@ -87,7 +89,7 @@ const HOST_FLOW = "host";
  * **Begin** names the host, so a non-host press is refused by the router with "That button is
  * not yours to press" before it ever reaches the engine.
  */
-function lobbyPayload(
+export function lobbyPayload(
   session: GameSession,
   config: SurvivorConfig,
   nowMs: number,
@@ -130,6 +132,17 @@ function lobbyPayload(
           label: "Begin",
           style: ButtonStyle.Primary,
           disabled: !mayBegin,
+        },
+        discord,
+      ),
+      // Opens a form for the two castaways; `/castaways` owns the flow. Pressing it before
+      // joining joins you, as a colour swatch does.
+      button(
+        {
+          parts: { ...shared, intent: "name_castaways" },
+          label: "Castaways",
+          style: ButtonStyle.Secondary,
+          emoji: "🏝️",
         },
         discord,
       ),
@@ -215,6 +228,7 @@ async function start(ctx: CommandContext): Promise<void> {
   }
 
   const posted = await ctx.reply.announce(lobbyPayload(session, ctx.config, ctx.nowMs));
+  session.lobbyCard = posted;
   if (posted === null) {
     // No lobby card means no way to join, so the game that was just created is unreachable.
     // Ending it is the only outcome that leaves the channel in a state anyone can act on.
@@ -343,7 +357,9 @@ async function host(ctx: CommandContext): Promise<void> {
   // host, and a component is bound to the player it names. Posting a fresh card is the whole
   // fix — the new one is minted against the state as it is now (audit #78).
   if (session.view().status === "lobby") {
-    await ctx.reply.announce(lobbyPayload(session, ctx.config, ctx.nowMs));
+    session.lobbyCard = await ctx.reply.announce(
+      lobbyPayload(session, ctx.config, ctx.nowMs),
+    );
   }
 }
 
@@ -383,11 +399,22 @@ async function resume(ctx: CommandContext): Promise<void> {
     await ctx.reply.announce({
       content: `${bold("The lobby is back.")} Nothing was lost.`,
     });
-    await ctx.reply.announce(lobbyPayload(session, ctx.config, ctx.nowMs));
+    session.lobbyCard = await ctx.reply.announce(
+      lobbyPayload(session, ctx.config, ctx.nowMs),
+    );
   } else {
+    const embed = statusEmbed(view, ctx.config);
+    const image = await boardImage(
+      view,
+      ctx.config,
+      { portraits: (playerId, index) => session.portrait(playerId, index) },
+      ctx.log,
+    );
+    if (image !== null) embed.setImage(image.url);
     await ctx.reply.announce({
       content: `${bold("The game is back exactly where it was.")} ${whereWeStand(session)}`,
-      embeds: [statusEmbed(view, ctx.config)],
+      embeds: [embed],
+      files: image === null ? undefined : [image.file],
     });
   }
 
