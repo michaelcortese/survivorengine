@@ -91,6 +91,16 @@ Timings can be changed with environment variables, in seconds:
 
 Other settings (player counts, cards per player, share of double Tribal Councils) live in `src/game/config.ts`.
 
+## Restarts
+
+Restarting or redeploying the bot doesn't end the game. It's saved to `data/game.json` shortly after every change and picked back up when the bot starts. Set `SAVE_FILE` to keep it somewhere else, for example on a volume if your host wipes the disk on each deploy. `/end_game` deletes the save.
+
+Timers and buttons can't be saved, so a few things come back differently:
+
+- A Tribal Council that was in progress is called off: votes are reset and play continues with the player after the one who drew the card. Anyone already voted out at it stays out.
+- The Final Tribal Council keeps the jury's votes and posts new vote buttons.
+- A `/setup` lobby, open card menus and Sorry for You countdowns are dropped.
+
 ## Development
 
 - `bun run typecheck` type-checks the bot and the tests.
@@ -110,4 +120,4 @@ Other settings (player counts, cards per player, share of double Tribal Councils
 - [x] Inheritance functionality (automatic when a player is eliminated)
 - [x] Pick your own castaways, grayed out as you lose lives
 - [ ] Let's Form an Alliance command
-- [ ] Keep games going across bot restarts
+- [x] Keep games going across bot restarts

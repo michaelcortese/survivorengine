@@ -43,9 +43,10 @@ export function useFastTimings(overrides: Partial<typeof GameConfig.timings> = {
 
 export class FakeCollector extends EventEmitter {
   ended = false;
+  collected = new Map<string, unknown>();
   private timer?: NodeJS.Timeout;
 
-  constructor(options: { time?: number } = {}) {
+  constructor(private readonly options: { time?: number; max?: number } = {}) {
     super();
     // Like discord.js, a missing or zero `time` means the collector never times out.
     if (options.time) this.timer = setTimeout(() => this.stop("time"), options.time);
@@ -55,13 +56,17 @@ export class FakeCollector extends EventEmitter {
     if (this.ended) return;
     this.ended = true;
     clearTimeout(this.timer);
-    this.emit("end", new Map(), reason);
+    this.emit("end", this.collected, reason);
   }
 
   /** Simulates a user clicking a component on the message. */
   async click(interaction: unknown) {
+    if (this.ended) return;
+    this.collected.set(String(this.collected.size + 1), interaction);
     const listeners = this.listeners("collect");
     await Promise.all(listeners.map((listener) => listener(interaction)));
+    // Like discord.js, stop once `max` clicks have been collected.
+    if (this.options.max && this.collected.size >= this.options.max) this.stop("limit");
   }
 }
 
@@ -92,10 +97,19 @@ export class FakeMessage {
   }
 }
 
+let nextChannelId = 1;
+/** Every channel made in the test, so the fake client can fetch them by id. */
+const channelsById = new Map<string, FakeChannel>();
+
 export class FakeChannel {
+  id = `channel-${nextChannelId++}`;
   messages: FakeMessage[] = [];
   /** Simulated network latency for each message sent. */
   sendDelayMs = 0;
+
+  constructor() {
+    channelsById.set(this.id, this);
+  }
 
   isSendable() {
     return true;
@@ -154,7 +168,8 @@ export interface LogEntry {
 /** DMs sent through the fake client, by user id. */
 export const sentDMs: { userId: string; content: string }[] = [];
 
-const fakeClient = {
+/** Stands in for the discord.js client (cast it to Client where one is needed). */
+export const fakeClient = {
   users: {
     fetch: async (id: string) => ({
       send: async (content: string) => {
@@ -162,6 +177,15 @@ const fakeClient = {
       },
     }),
   },
+  channels: {
+    fetch: async (id: string) => {
+      const channel = channelsById.get(id);
+      if (!channel) throw new Error("Unknown Channel");
+      return channel;
+    },
+  },
+  /** The slash commands interactionCreate can run, by name. */
+  commands: new Map<string, unknown>(),
 };
 
 export class FakeInteraction {
@@ -194,6 +218,15 @@ export class FakeInteraction {
     getAttachment: (name: string, required?: boolean) => this.option(name, required),
     getFocused: () => String(this.optionValues.focused ?? ""),
   };
+
+  isAutocomplete() {
+    return false;
+  }
+
+  /** Slash commands have no customId; buttons and menus do. */
+  isChatInputCommand() {
+    return this.customId === "";
+  }
 
   private option(name: string, required?: boolean) {
     const value = this.optionValues[name];

@@ -113,8 +113,15 @@ class GameManager {
   winner: Player | null = null;
   lobby: Lobby | null = null;
   discussionMs = GameConfig.timings.discussionMs;
+  /** Set by persistence.ts to save the game whenever it changes. */
+  onChange: (() => void) | null = null;
 
-  /** Ends any game or lobby in progress and clears all state. */
+  /** Records that the game changed, so the save file gets updated. */
+  changed(): void {
+    this.onChange?.();
+  }
+
+  /** Ends any game or lobby in progress and clears all state, including the save file. */
   reset(lobbyCloseReason?: string): void {
     this.id++;
     this.active = false;
@@ -135,6 +142,7 @@ class GameManager {
     this.winner = null;
     this.lobby = null;
     this.discussionMs = GameConfig.timings.discussionMs;
+    this.changed();
   }
 
   startGame(players: Player[], options: StartOptions = {}): void {
@@ -183,6 +191,7 @@ class GameManager {
     this.active = true;
     this.currentPlayerIndex = 0;
     console.log("Game started!");
+    this.changed();
   }
 
   isCurrentGame(gameId: number): boolean {
@@ -229,6 +238,24 @@ class GameManager {
     if (!player.isAlive()) return this.advanceTurn(player);
     this.currentPlayerIndex = this.players.indexOf(player);
     return player;
+  }
+
+  /**
+   * Wraps up a Tribal Council: clears everyone's votes, then locks in the Final
+   * Tribal Council if two players remain, or passes the turn: to `newLeader` if
+   * they took over with I'm the Leader Now, otherwise to the player after
+   * `drawer`. Returns whose turn it is (nobody's at the final two).
+   */
+  endTribalCouncil(drawer: Player | undefined, newLeader?: Player): Player | undefined {
+    const finalTwo = this.getAlivePlayers().length <= 2;
+    this.tribalCouncilState = finalTwo
+      ? TribalCouncilState.FINAL
+      : TribalCouncilState.NotStarted;
+    for (const player of this.players) {
+      player.votes = 0;
+    }
+    if (finalTwo) return undefined;
+    return newLeader ? this.setTurn(newLeader) : this.advanceTurn(drawer);
   }
 
   /**

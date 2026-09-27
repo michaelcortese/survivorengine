@@ -147,6 +147,7 @@ class FinalTribalCouncil {
     }
     if (this.votes.has(juror.id)) return "You've already cast your vote.";
     this.votes.set(juror.id, finalist);
+    Game.changed();
     return null;
   }
 
@@ -170,6 +171,7 @@ class FinalTribalCouncil {
   async reveal() {
     if (!this.votingOpen) return;
     this.revealing = true;
+    Game.changed();
     if (this.voteTimer) clearTimeout(this.voteTimer);
     this.collector?.stop("reveal");
     await this.message
@@ -254,6 +256,7 @@ class FinalTribalCouncil {
     if (this.tieTimer) clearTimeout(this.tieTimer);
     Game.winner = winner;
     Game.active = false;
+    Game.changed();
     await this.say(
       await buildBoardMessage({
         title: "Sole Survivor",
@@ -284,12 +287,11 @@ function mostRecentlyEliminated(jury: Player[]): Player | undefined {
 }
 
 /**
- * Starts the Final Tribal Council once two players remain. Returns the council,
- * or an error message explaining why it can't start.
+ * Sets up the Final Tribal Council once two players remain, without opening the
+ * vote yet. Returns the council, or an error message explaining why it can't
+ * start.
  */
-async function startFinalTribalCouncil(
-  say: Announcer,
-): Promise<FinalTribalCouncil | string> {
+function createFinalTribalCouncil(say: Announcer): FinalTribalCouncil | string {
   if (!Game.active) return "No game is currently in progress!";
   if (Game.finalTribalCouncil) return "Final Tribal Council has already started.";
   const finalists = Game.getAlivePlayers();
@@ -307,8 +309,21 @@ async function startFinalTribalCouncil(
   Game.tribalCouncilState = TribalCouncilState.FINAL;
   const council = new FinalTribalCouncil(finalists, jury, leader, say);
   Game.finalTribalCouncil = council;
+  return council;
+}
+
+/**
+ * Starts the Final Tribal Council once two players remain. Returns the council,
+ * or an error message explaining why it can't start.
+ */
+async function startFinalTribalCouncil(
+  say: Announcer,
+): Promise<FinalTribalCouncil | string> {
+  const council = createFinalTribalCouncil(say);
+  if (typeof council === "string") return council;
+  Game.changed();
   await council.open();
   return council;
 }
 
-export { FinalTribalCouncil, startFinalTribalCouncil };
+export { FinalTribalCouncil, createFinalTribalCouncil, startFinalTribalCouncil };

@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Client, Collection, Events, GatewayIntentBits } from 'discord.js';
+import { flushSave } from './game/persistence';
 
 const { TOKEN } = process.env;
 
@@ -31,6 +32,12 @@ process.on('unhandledRejection', (reason) => {
 client.on(Events.Error, (error) => {
     console.error('Discord client error:', error);
 });
+// Write the game's latest changes to disk before stopping (e.g. on a redeploy).
+for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+    process.once(signal, () => {
+        void flushSave().finally(() => process.exit(0));
+    });
+}
 
 async function loadCommands() {
     const foldersPath = path.join(__dirname, 'commands');

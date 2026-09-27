@@ -86,6 +86,13 @@ class Deck {
     }
   }
 
+  /** A deck holding exactly these cards (bottom first), e.g. a saved game's draw pile. */
+  static fromCards(drawPile: Card[]): Deck {
+    const deck = new Deck();
+    deck.cards = [...drawPile];
+    return deck;
+  }
+
   /** One Inheritance card per player: whoever holds it gets that player's hand when they're eliminated. */
   addInheritanceCards(players: Player[]) {
     for (const player of players) {

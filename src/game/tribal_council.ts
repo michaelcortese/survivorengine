@@ -3,10 +3,11 @@ import {
   ButtonBuilder,
   ButtonStyle,
   ChatInputCommandInteraction,
+  Client,
   ComponentType,
   MessageFlags,
 } from "discord.js";
-import { Game, TribalCouncilState } from "./game";
+import { Game, HandSettlement, TribalCouncilState } from "./game";
 import type Player from "./player";
 import { GameConfig, formatDuration } from "./config";
 import { buildBoardMessage } from "./board";
@@ -61,6 +62,34 @@ function shuffled<T>(items: T[]): T[] {
   return copy;
 }
 
+/** Announces where each eliminated player's hand went, and DMs heirs their new cards. */
+async function announceHandSettlements(
+  settlements: HandSettlement[],
+  say: Announcer,
+  client: Client,
+) {
+  for (const settlement of settlements) {
+    const { player, heir, inheritedCards, discardedCount } = settlement;
+    if (heir) {
+      const count = inheritedCards.length;
+      await say(
+        `📜 <@${heir.id}> played **Inheritance: ${player.username}** and inherits ${count} card${count === 1 ? "" : "s"} from <@${player.id}>.`,
+      );
+      if (count > 0) {
+        await sendDM(
+          client,
+          heir.id,
+          `You inherited ${inheritedCards.map((card) => `**${card.getName()}**`).join(", ")} from ${player.username} in the Survivor game!`,
+        );
+      }
+    } else if (discardedCount > 0) {
+      await say(
+        `<@${player.id}>'s ${discardedCount} card${discardedCount === 1 ? "" : "s"} go to the discard pile.`,
+      );
+    }
+  }
+}
+
 class TribalCouncil {
   interaction: ChatInputCommandInteraction;
   tribalCouncilType: TribalCouncilType;
@@ -81,7 +110,7 @@ class TribalCouncil {
   private readonly say: Announcer;
   private readonly timers = new Set<NodeJS.Timeout>();
   /** Players eliminated at this council; their hands are settled at the end. */
-  private readonly eliminated: Player[] = [];
+  readonly eliminated: Player[] = [];
   private finished = false;
   private disposed = false;
 
@@ -125,6 +154,7 @@ class TribalCouncil {
       player.votes += 1;
     }
     Game.tribalCouncilState = TribalCouncilState.Discussion;
+    Game.changed();
     const isDouble = this.drawnType === TribalCouncilType.DOUBLE;
     await this.interaction.deferReply();
     await this.interaction.editReply({
@@ -543,6 +573,7 @@ class TribalCouncil {
     for (const outcome of outcomes) {
       if (outcome.eliminated) this.eliminated.push(outcome.player);
     }
+    Game.changed();
     for (const outcome of outcomes) {
       const { player, castaway } = outcome;
       const lives = player.lives;
@@ -561,30 +592,6 @@ class TribalCouncil {
     }
   }
 
-  /** Hands the eliminated players' cards to their heirs (or the discard pile). */
-  private async settleHands() {
-    for (const settlement of Game.settleEliminatedHands(this.eliminated)) {
-      const { player, heir, inheritedCards, discardedCount } = settlement;
-      if (heir) {
-        const count = inheritedCards.length;
-        await this.say(
-          `📜 <@${heir.id}> played **Inheritance: ${player.username}** and inherits ${count} card${count === 1 ? "" : "s"} from <@${player.id}>.`,
-        );
-        if (count > 0) {
-          await sendDM(
-            this.interaction.client,
-            heir.id,
-            `You inherited ${inheritedCards.map((card) => `**${card.getName()}**`).join(", ")} from ${player.username} in the Survivor game!`,
-          );
-        }
-      } else if (discardedCount > 0) {
-        await this.say(
-          `<@${player.id}>'s ${discardedCount} card${discardedCount === 1 ? "" : "s"} go to the discard pile.`,
-        );
-      }
-    }
-  }
-
   /** Ends the council: board, then the next turn or the Final Tribal Council. */
   async finish(showBoard = true) {
     if (this.finished) return;
@@ -598,19 +605,14 @@ class TribalCouncil {
     const finalTwo = alive <= 2;
     // Lock in the Final Tribal Council now, before any awaits, so nobody can
     // draw (and start another council) while the messages below are posted.
-    Game.tribalCouncilState = finalTwo
-      ? TribalCouncilState.FINAL
-      : TribalCouncilState.NotStarted;
-    for (const player of Game.players) {
-      player.votes = 0;
-    }
-    const next = finalTwo
-      ? undefined
-      : this.leaderChangedByCard && this.leader
-        ? Game.setTurn(this.leader)
-        : Game.advanceTurn(this.drawer);
+    const next = Game.endTribalCouncil(
+      this.drawer,
+      this.leaderChangedByCard ? this.leader : undefined,
+    );
+    const settlements = Game.settleEliminatedHands(this.eliminated);
+    Game.changed();
 
-    await this.settleHands();
+    await announceHandSettlements(settlements, this.say, this.interaction.client);
     if (showBoard && !this.isGameStale()) {
       await this.say(
         await buildBoardMessage({
@@ -689,4 +691,4 @@ class TribalCouncil {
   }
 }
 
-export { TribalCouncil, TribalCouncilType };
+export { TribalCouncil, TribalCouncilType, announceHandSettlements };

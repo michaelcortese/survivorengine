@@ -77,6 +77,7 @@ export default {
       if (resolved) return undefined;
       resolved = true;
       const card = (cardName ? attacker.removeCard(cardName) : undefined) ?? discardRandom(attacker);
+      Game.changed(); // a timed-out menu isn't an interaction, so nothing else saves it
       if (card) await interaction.followUp({ content: publicText(card) }).catch(() => undefined);
       return card;
     };

@@ -6,6 +6,7 @@ import {
   Interaction,
   MessageFlags,
 } from 'discord.js';
+import { Game } from '../game/game';
 
 interface Command {
   data: any;
@@ -32,8 +33,12 @@ export default {
       return;
     }
 
-    // Buttons, menus and modals are handled by collectors in the commands
-    if (!interaction.isChatInputCommand()) return;
+    // Buttons, menus and modals are handled by collectors in the commands.
+    // Saving is delayed a little, so it happens after the collector has run.
+    if (!interaction.isChatInputCommand()) {
+      Game.changed();
+      return;
+    }
 
     const command = interaction.client.commands.get(interaction.commandName);
 
@@ -62,6 +67,10 @@ export default {
       catch (replyError) {
         console.error('Could not tell the user about the error:', replyError);
       }
+    }
+    finally {
+      // Save whatever the command changed
+      Game.changed();
     }
   },
 };

@@ -31,6 +31,9 @@ config.json
 logs/
 *.log
 
+# Saved game (see src/game/persistence.ts)
+data/
+
 # Test and coverage reports
 coverage/
 .nyc_output/
