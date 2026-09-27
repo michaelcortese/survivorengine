@@ -37,16 +37,20 @@ export function useFastTimings(overrides: Partial<typeof GameConfig.timings> = {
     suspenseMs: 0,
     lobbyMs: 60_000,
     menuMs: 40,
+    rewardChallengeMs: 60_000,
     ...overrides,
   });
 }
 
 export class FakeCollector extends EventEmitter {
   ended = false;
+  collected = new Map<number, unknown>();
   private timer?: NodeJS.Timeout;
+  private max?: number;
 
-  constructor(options: { time?: number } = {}) {
+  constructor(options: { time?: number; max?: number } = {}) {
     super();
+    this.max = options.max;
     // Like discord.js, a missing or zero `time` means the collector never times out.
     if (options.time) this.timer = setTimeout(() => this.stop("time"), options.time);
   }
@@ -55,13 +59,17 @@ export class FakeCollector extends EventEmitter {
     if (this.ended) return;
     this.ended = true;
     clearTimeout(this.timer);
-    this.emit("end", new Map(), reason);
+    this.emit("end", this.collected, reason);
   }
 
   /** Simulates a user clicking a component on the message. */
   async click(interaction: unknown) {
     const listeners = this.listeners("collect");
-    await Promise.all(listeners.map((listener) => listener(interaction)));
+    const handling = listeners.map((listener) => listener(interaction));
+    this.collected.set(this.collected.size, interaction);
+    // Like discord.js, reaching `max` ends the collector once the listeners have started.
+    if (this.max && this.collected.size >= this.max) this.stop("limit");
+    await Promise.all(handling);
   }
 }
 
@@ -193,6 +201,7 @@ export class FakeInteraction {
     getBoolean: (name: string, required?: boolean) => this.option(name, required),
     getAttachment: (name: string, required?: boolean) => this.option(name, required),
     getFocused: () => String(this.optionValues.focused ?? ""),
+    getSubcommand: (required = true) => this.option("subcommand", required),
   };
 
   private option(name: string, required?: boolean) {

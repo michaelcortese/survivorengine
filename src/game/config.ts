@@ -45,6 +45,8 @@ export const GameConfig = {
     lobbyMs: secondsFromEnv("LOBBY_SECONDS", 30 * 60),
     /** How long card pickers (give, discard, spy, forced discard) wait for a choice. */
     menuMs: secondsFromEnv("MENU_SECONDS", 60),
+    /** How long Reward Challenge players have to pick (and the winner to choose who to steal from). */
+    rewardChallengeMs: secondsFromEnv("REWARD_CHALLENGE_SECONDS", 60),
   },
 };
 

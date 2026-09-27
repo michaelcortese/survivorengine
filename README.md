@@ -37,7 +37,17 @@ The board is posted when the game starts and after every Tribal Council. **`/boa
 
 On your turn, steal a random card from someone (`/steal_random`), optionally play a card, then **`/draw`** to end your turn. The bot keeps track of whose turn it is: only that player can draw. If someone is away, anyone can use **`/skip_turn`**.
 
-`/steal_random` isn't locked to your turn, because Reward Challenges and Let's Form an Alliance also end in steals (those are played out at the table, then settled with `/steal_random`, `/give` and `/discard`).
+`/steal_random` isn't locked to your turn, because Let's Form an Alliance also ends in steals (it's played out at the table, then settled with `/steal_random`, `/give` and `/discard`).
+
+### Reward Challenges
+
+Play a Reward Challenge card with **`/reward_challenge`**. Everyone taking part picks in secret with buttons (your pick is confirmed privately), and the picks are revealed once everyone is in:
+
+- **`/reward_challenge numbers_game`**: everyone still in the game picks a number from 1 to 5. The lowest number that nobody else picked wins, and that player chooses someone to steal 2 random cards from. If every number was picked more than once, nobody wins.
+- **`/reward_challenge power_pair player1 player2`**: you and the two players you name pick 1, 2 or 3. If exactly two of you match, you each steal 1 random card from the third; if all three match, you each discard 1 card; if all three are different, you play again.
+- **`/reward_challenge do_or_die player`**: Rock Paper Scissors. The winner steals 2 random cards from the loser (that can be you); on a tie, you swap 1 random card.
+
+Anyone who hasn't picked after a minute sits out the Numbers Game, or gets a random pick in Power Pair and Do or Die. Every steal can be blocked with `/sorry_for_you`. Only one challenge runs at a time, and nobody can draw until it's over.
 
 ### Tribal Council
 
@@ -66,6 +76,7 @@ When two players remain, the Final Tribal Council starts on its own. The finalis
 | `/draw`, `/skip_turn` | End your turn, or skip an absent player |
 | `/steal_random`, `/give`, `/discard` | Move cards around |
 | `/spy_shack`, `/knowledge_is_power`, `/camp_raid`, `/sorry_for_you` | Play action cards |
+| `/reward_challenge` | Play a Reward Challenge: It's a Numbers Game, Power Pair or Do or Die |
 | `/extra_vote`, `/control_the_vote`, `/goodwill_gamble`, `/im_the_leader` | Tribal advantages |
 | `/cast_vote`, `/immunity_idol`, `/idol_nullifier`, `/break_tie` | Tribal Council |
 | `/final_tribal_council`, `/reveal_votes` | Final Tribal Council (normally automatic) |
@@ -88,6 +99,7 @@ Timings can be changed with environment variables, in seconds:
 | `VOTE_READ_SECONDS` / `SUSPENSE_SECONDS` | 3 / 5 |
 | `LOBBY_SECONDS` | 1800 |
 | `MENU_SECONDS` | 60 |
+| `REWARD_CHALLENGE_SECONDS` | 60 (time to pick in a Reward Challenge) |
 
 Other settings (player counts, cards per player, share of double Tribal Councils) live in `src/game/config.ts`.
 
@@ -106,7 +118,7 @@ Other settings (player counts, cards per player, share of double Tribal Councils
 - [x] FIX PROPORTIONS Tribal council cards (doubles now happen, official deck layout, and the game always reaches the final two)
 - [x] Camp raid (steal next draw)
 - [x] Force discard after getting sorry-for-you'd
-- [ ] REWARD CHALLENGE custom command
+- [x] REWARD CHALLENGE custom command
 - [x] Inheritance functionality (automatic when a player is eliminated)
 - [x] Pick your own castaways, grayed out as you lose lives
 - [ ] Let's Form an Alliance command

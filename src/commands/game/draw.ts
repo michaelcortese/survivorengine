@@ -42,6 +42,13 @@ export default {
         `It's not your turn! Waiting on <@${current.id}> to draw. (If they're away, anyone can use /skip_turn.)`,
       );
     }
+    // Drawing ends the turn and can start a Tribal Council, so finish the challenge first
+    if (Game.rewardChallenge) {
+      return replyEphemeral(
+        interaction,
+        "A Reward Challenge is still being played. Draw once it's over!",
+      );
+    }
 
     const card = Game.deck.drawCard();
     if (card === undefined) {

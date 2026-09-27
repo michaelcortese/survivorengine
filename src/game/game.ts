@@ -14,6 +14,7 @@ import { GameConfig } from "./config";
 import type { TribalCouncil } from "./tribal_council";
 import type { FinalTribalCouncil } from "./final_tribal_council";
 import type { Lobby } from "./lobby";
+import type { RewardChallenge } from "./reward_challenge";
 
 enum TribalCouncilState {
   NotStarted,
@@ -112,6 +113,8 @@ class GameManager {
   finalTribalCouncil: FinalTribalCouncil | null = null;
   winner: Player | null = null;
   lobby: Lobby | null = null;
+  /** The Reward Challenge being played, if any. Nobody can draw until it's over. */
+  rewardChallenge: RewardChallenge | null = null;
   discussionMs = GameConfig.timings.discussionMs;
 
   /** Ends any game or lobby in progress and clears all state. */
@@ -120,6 +123,7 @@ class GameManager {
     this.active = false;
     this.tribalCouncil?.dispose();
     this.finalTribalCouncil?.dispose();
+    this.rewardChallenge?.dispose();
     this.lobby?.dispose(lobbyCloseReason);
     this.interruption?.settle("stopped");
     this.interruption = null;
@@ -134,6 +138,7 @@ class GameManager {
     this.finalTribalCouncil = null;
     this.winner = null;
     this.lobby = null;
+    this.rewardChallenge = null;
     this.discussionMs = GameConfig.timings.discussionMs;
   }
 
@@ -303,18 +308,9 @@ class GameManager {
         return { error: "You must specify a target player!" };
       }
       if (targetUser) {
-        targetPlayer = this.getPlayerFromUserId(targetUser.id);
-        if (!targetPlayer) {
-          return { error: "The specified player is not in the game!" };
-        }
-        if (!rules.allowSelfTarget && targetPlayer === player) {
-          return { error: "You can't target yourself with that!" };
-        }
-        if (!rules.allowEliminatedTarget && !targetPlayer.isAlive()) {
-          return {
-            error: `<@${targetPlayer.id}> has already been voted out of the game.`,
-          };
-        }
+        const target = this.validateTarget(player, targetUser, rules);
+        if ("error" in target) return target;
+        targetPlayer = target.targetPlayer;
       }
     }
 
@@ -352,6 +348,27 @@ class GameManager {
     }
 
     return { player, targetPlayer };
+  }
+
+  /** Checks that `player` can target `user` (for commands that name more than one player). */
+  validateTarget(
+    player: Player,
+    user: { id: string },
+    rules: Pick<ActionRules, "allowSelfTarget" | "allowEliminatedTarget"> = {},
+  ): { error: string } | { targetPlayer: Player } {
+    const targetPlayer = this.getPlayerFromUserId(user.id);
+    if (!targetPlayer) {
+      return { error: "The specified player is not in the game!" };
+    }
+    if (!rules.allowSelfTarget && targetPlayer === player) {
+      return { error: "You can't target yourself with that!" };
+    }
+    if (!rules.allowEliminatedTarget && !targetPlayer.isAlive()) {
+      return {
+        error: `<@${targetPlayer.id}> has already been voted out of the game.`,
+      };
+    }
+    return { targetPlayer };
   }
 
   /** Castaways voted out so far across all players. */

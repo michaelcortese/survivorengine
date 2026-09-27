@@ -1,6 +1,5 @@
 import {
   BaseMessageOptions,
-  ChatInputCommandInteraction,
   Client,
   Message,
   MessageFlags,
@@ -127,13 +126,24 @@ export function handSelectOptions(hand: Card[]) {
 }
 
 /**
- * Opens the Sorry for You window for `target` and counts it down in the
- * command's public reply (posting the reply if needed). Resolves with
- * "stopped" if the target blocks it in time. Returns null if another window is
- * already open.
+ * Where a Sorry for You countdown is shown: normally a command's reply, but
+ * anything that can post a message and then edit it will do.
+ */
+export interface CountdownDisplay {
+  readonly replied: boolean;
+  readonly deferred: boolean;
+  reply(options: { content: string }): Promise<unknown>;
+  editReply(options: { content: string }): Promise<unknown>;
+}
+
+/**
+ * Opens the Sorry for You window for `target` and counts it down in `display`,
+ * usually the command's public reply (posting the reply if needed). Resolves
+ * with "stopped" if the target blocks it in time. Returns null if another
+ * window is already open.
  */
 export async function runSorryForYouWindow(
-  interaction: ChatInputCommandInteraction,
+  display: CountdownDisplay,
   attacker: Player,
   target: Player,
   describe: (secondsLeft: number) => string,
@@ -146,10 +156,10 @@ export async function runSorryForYouWindow(
   const startedAt = Date.now();
   let shown = Math.ceil(durationMs / 1000);
   try {
-    if (interaction.replied || interaction.deferred) {
-      await interaction.editReply({ content: describe(shown) });
+    if (display.replied || display.deferred) {
+      await display.editReply({ content: describe(shown) });
     } else {
-      await interaction.reply({ content: describe(shown) });
+      await display.reply({ content: describe(shown) });
     }
     await onOpen?.();
   } catch (error) {
@@ -167,7 +177,7 @@ export async function runSorryForYouWindow(
     if (left === shown || editing) return;
     shown = left;
     editing = true;
-    inFlight = interaction
+    inFlight = display
       .editReply({ content: describe(left) })
       .catch(() => undefined)
       .finally(() => {

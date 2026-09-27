@@ -62,6 +62,13 @@ class Player {
     return this.hand.splice(cardIndex, 1)[0];
   }
 
+  /** Removes a random card and returns it, if the player has any. */
+  removeRandomCard(): Card | undefined {
+    if (this.hand.length === 0) return undefined;
+    const index = Math.floor(Math.random() * this.hand.length);
+    return this.hand.splice(index, 1)[0];
+  }
+
   isAlive(): boolean {
     return this.lives > 0;
   }
