@@ -1,0 +1,6 @@
+dist/
+coverage/
+node_modules/
+*.bin
+docs/AUDIT.md
+docs/RULES.md

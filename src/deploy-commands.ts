@@ -1,118 +1,108 @@
-import "dotenv/config";
-import { REST, Routes } from "discord.js";
-import * as fs from "node:fs";
-import * as path from "node:path";
+/**
+ * Register the slash commands with Discord.
+ *
+ * Two audiences, one list:
+ *
+ *   GUILD (when GUILD_ID is set)  — instant. Discord applies a guild command the moment this
+ *                                   returns, which is the only sane way to iterate on a command
+ *                                   surface. Development.
+ *   GLOBAL (otherwise)            — up to an hour to propagate to every server. Production.
+ *
+ * The command list comes from `loadCommands()` in `src/index.ts` rather than from a second
+ * scan of the directory. That is deliberate: registering a command with Discord and having a
+ * handler for it are the same list, and audit #103 — a loader that filtered for `.ts`, so a
+ * compiled build registered zero commands — is exactly what happens when they are two lists
+ * that only look alike. Importing `index.ts` does NOT start a bot; `main()` runs only when that
+ * file is the process entry point.
+ *
+ * Exits non-zero on any failure, so `npm run deploy` in CI fails the pipeline instead of
+ * printing a stack trace and returning 0.
+ */
+
+import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const { CLIENT_ID, GUILD_ID, TOKEN } = process.env;
+import {
+  REST,
+  Routes,
+  type RESTPostAPIChatInputApplicationCommandsJSONBody,
+} from "discord.js";
 
-if (!CLIENT_ID || !GUILD_ID || !TOKEN) {
-  console.error(
-    "Missing required environment variables: CLIENT_ID, GUILD_ID, TOKEN",
-  );
-  process.exit(1);
-}
+import { config } from "./config.js";
+import { createLogger } from "./logger.js";
+import { loadCommands, readSecrets } from "./index.js";
 
-console.log("Script started...");
+async function deploy(): Promise<void> {
+  const log = createLogger(config.discord.logLevel, {
+    app: "survivor",
+    tool: "deploy",
+  });
 
-// Create __dirname equivalent for ES modules
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-console.log("__dirname:", __dirname);
-
-const commands: any[] = [];
-
-async function loadCommands() {
-  console.log("loadCommands function called");
-  // Grab all the command folders from the commands directory you created earlier
-  const foldersPath = path.join(__dirname, "commands");
-  console.log(`Looking for commands in: ${foldersPath}`);
-
-  if (!fs.existsSync(foldersPath)) {
-    console.error(`Commands directory does not exist: ${foldersPath}`);
-    return;
-  }
-
-  const commandFolders = fs.readdirSync(foldersPath);
-  console.log(`Found command folders: ${commandFolders.join(", ")}`);
-
-  for (const folder of commandFolders) {
-    // Grab all the command files from the commands directory you created earlier
-    const commandsPath = path.join(foldersPath, folder);
-    console.log(`Looking in folder: ${commandsPath}`);
-
-    if (!fs.existsSync(commandsPath)) {
-      console.error(`Folder does not exist: ${commandsPath}`);
-      continue;
-    }
-
-    const commandFiles = fs
-      .readdirSync(commandsPath)
-      .filter((file) => file.endsWith(".ts"));
-    console.log(
-      `Found ${commandFiles.length} .ts files in ${folder}: ${commandFiles.join(", ")}`,
+  const secrets = readSecrets(process.env, config);
+  if (!secrets.ok) {
+    log.error("missing required environment variables", undefined, {
+      missing: secrets.missing.join(", "),
+    });
+    console.error(
+      `\nSet these in .env (see .env.example):\n${secrets.missing.map((name) => `  ${name}`).join("\n")}\n`,
     );
+    process.exit(1);
+  }
+  const { token, clientId, guildId } = secrets.secrets;
 
-    // Grab the SlashCommandBuilder#toJSON() output of each command's data for deployment
-    for (const file of commandFiles) {
-      const filePath = path.join(commandsPath, file);
-      console.log(`Loading command from: ${filePath}`);
-      try {
-        const command = await import(filePath);
-        // Handle ES6 default exports
-        const commandModule = command.default || command;
-        if ("data" in commandModule && "execute" in commandModule) {
-          commands.push(commandModule.data.toJSON());
-          console.log(`✓ Loaded command: ${commandModule.data.name}`);
-        } else {
-          console.log(
-            `[WARNING] The command at ${filePath} is missing a required "data" or "execute" property.`,
-          );
-        }
-      } catch (error) {
-        console.error(`Error loading command ${filePath}:`, error);
-      }
+  // `src/deploy-commands.ts` and `src/commands/` are siblings under tsx; `dist/deploy-commands.js`
+  // and `dist/commands/` are siblings after a build. One expression covers both.
+  const baseDir = dirname(fileURLToPath(import.meta.url));
+  const loaded = await loadCommands(baseDir, log);
+  if (loaded.problems.length > 0) {
+    for (const problem of loaded.problems)
+      log.error("could not load a command", undefined, { problem });
+    process.exit(1);
+  }
+
+  const body: RESTPostAPIChatInputApplicationCommandsJSONBody[] = [];
+  for (const command of loaded.commands.values()) {
+    try {
+      body.push(command.data.toJSON());
+    } catch (cause) {
+      // A builder throws on an invalid name, an over-length description, too many options. Say
+      // which command, or the operator is left bisecting the directory by hand.
+      log.error("command definition is invalid", cause, { command: command.data.name });
+      process.exit(1);
     }
   }
-  console.log("loadCommands function completed");
-}
 
-console.log("About to create REST client...");
+  const route =
+    guildId === null
+      ? Routes.applicationCommands(clientId)
+      : Routes.applicationGuildCommands(clientId, guildId);
+  const scope = guildId === null ? "globally" : `to guild ${guildId}`;
 
-// Construct and prepare an instance of the REST module
-const rest = new REST().setToken(TOKEN);
+  const rest = new REST().setToken(token);
 
-console.log("REST client created, starting deployment...");
+  console.info(`Registering ${body.length} command(s) ${scope}:`);
+  for (const command of body)
+    console.info(`  /${command.name} — ${command.description}`);
 
-// and deploy your commands!
-(async () => {
   try {
-    console.log("Starting command deployment...");
-    await loadCommands();
-
-    console.log(
-      `Started refreshing ${commands.length} application (/) commands.`,
+    // PUT, not POST: the full set replaces whatever was there, so a command deleted from the
+    // repository disappears from Discord instead of lingering as a dead entry that answers
+    // "The application did not respond" (audit #42) for the rest of its life.
+    const registered = (await rest.put(route, { body })) as readonly unknown[];
+    console.info(
+      `\nRegistered ${registered.length} command(s) ${scope}.${
+        guildId === null
+          ? " Global commands can take up to an hour to appear; set GUILD_ID for instant updates while developing."
+          : " Guild commands are live immediately."
+      }`,
     );
-
-    if (commands.length === 0) {
-      console.log("No commands found to deploy!");
-      return;
-    }
-
-    // The put method is used to fully refresh all commands in the guild with the current set
-    const data = (await rest.put(
-      Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
-      { body: commands },
-    )) as any[];
-
-    console.log(
-      `Successfully reloaded ${data.length} application (/) commands.`,
+  } catch (cause) {
+    log.error("could not register commands", cause, { scope });
+    console.error(
+      "\nCheck that the token belongs to the application named by CLIENT_ID, and that the bot was invited with the applications.commands scope.\n",
     );
-  } catch (error) {
-    // And of course, make sure you catch and log any errors!
-    console.error("Error in deployment:", error);
+    process.exit(1);
   }
-})();
+}
 
-console.log("Script setup completed");
+await deploy();
