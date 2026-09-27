@@ -1,4 +1,3 @@
-// TODO add draw TRIBAL
 import { TribalCouncil, TribalCouncilType } from "../../game/tribal_council";
 import {
   SlashCommandBuilder,
@@ -6,142 +5,126 @@ import {
   MessageFlags,
 } from "discord.js";
 import { Game, TribalCouncilState } from "../../game/game";
-const HAS_TARGET = false;
-const REQUIRED_CARD = null;
-const INTERRUPTIBLE = true;
-const STOPPING_INTERACTION = false;
+import type Player from "../../game/player";
+import { CardName } from "../../game/cards";
+import {
+  replyEphemeral,
+  runSorryForYouWindow,
+  sendDM,
+} from "../../util/discord";
+
+async function goToTribalCouncil(
+  interaction: ChatInputCommandInteraction,
+  drawer: Player,
+  type: TribalCouncilType,
+) {
+  Game.tribalCouncilState = TribalCouncilState.Discussion;
+  const tribalCouncil = new TribalCouncil(interaction, type, drawer);
+  Game.setTribalCouncil(tribalCouncil);
+  await tribalCouncil.init();
+}
 
 export default {
   data: new SlashCommandBuilder()
     .setName("draw")
-    .setDescription("Draw a card from the deck"),
+    .setDescription("Draw a card from the deck (this ends your turn)"),
   async execute(interaction: ChatInputCommandInteraction) {
-    const result = Game.checkForError(
-      interaction,
-      HAS_TARGET,
-      REQUIRED_CARD,
-      INTERRUPTIBLE,
-      STOPPING_INTERACTION,
-    );
+    const result = Game.validateAction(interaction, { interruptible: true });
     if ("error" in result) {
-      return interaction.reply({
-        content: result.error.content,
-        flags: MessageFlags.Ephemeral,
-      });
+      return replyEphemeral(interaction, result.error);
     }
     const { player } = result;
+
+    const current = Game.currentPlayer();
+    if (current && current !== player) {
+      return replyEphemeral(
+        interaction,
+        `It's not your turn! Waiting on <@${current.id}> to draw. (If they're away, anyone can use /skip_turn.)`,
+      );
+    }
+
     const card = Game.deck.drawCard();
     if (card === undefined) {
+      if (Game.getAlivePlayers().length > 2) {
+        // Out of cards with no winner yet: every draw now means Tribal Council.
+        return goToTribalCouncil(interaction, player, TribalCouncilType.SINGLE);
+      }
       return interaction.reply("No cards left in the deck.");
     }
 
     // CHECK FOR TRIBAL COUNCIL
-    if (card.getName() === "Tribal Council") {
-      // Card drawn was tribal council, tell game
-      Game.tribalCouncilState = TribalCouncilState.Discussion;
-
-      // Determine tribal council type from option or default to single
-      const tribalType = card.tribalValue;
-      // messy, so why do we even need this?
-      const tribalCouncilType =
-        tribalType === 2 ? TribalCouncilType.DOUBLE : TribalCouncilType.SINGLE;
-
-      Game.setTribalCouncil(new TribalCouncil(interaction, tribalCouncilType));
-      await Game.tribalCouncil?.init();
-      return;
+    if (card.getName() === CardName.TribalCouncil) {
+      return goToTribalCouncil(
+        interaction,
+        player,
+        card.tribalValue === 2 ? TribalCouncilType.DOUBLE : TribalCouncilType.SINGLE,
+      );
     }
 
     // check for camp raid
-    if (player.campRaid) {
-
-      // Respond immediately to Discord (public message)
-      let msg = await interaction.reply({
-        content: `<@${player.campRaid.id}> is attempting to steal <@${player.id}>'s draw... (<@${player.id}> has ~15 seconds remaining to play "Sorry For You")`,
-      });
-
-      // show player card
-      await interaction.followUp({
-        content: `You drew a ${card.getName()} (${card.getImage()}), and <@${player.campRaid.id}> is attempting to raid your camp and steal it`,
-        flags: MessageFlags.Ephemeral,
-      });
-
-      Game.startCooldown(player.campRaid, player);
-
-      // Wait for interruption or timeout
-      const startTime = Date.now();
-      const countdownDuration = 15000; // 15 seconds in milliseconds
-      let lastDisplayedSecond = 15;
-
-      while (Game.interruption.active) {
-        if (Game.interruption.stopped) {
-          await interaction.editReply({
-            content: `Steal attempt was interrupted with ${lastDisplayedSecond} seconds remaining`,
-          });
-
-          await interaction.followUp({
-            content: `You drew a ${card.getName()} (${card.getImage()}).`,
+    const raider = player.campRaid;
+    if (raider) {
+      const window = await runSorryForYouWindow(
+        interaction,
+        raider,
+        player,
+        (seconds) =>
+          `<@${raider.id}> is attempting to steal <@${player.id}>'s draw... (<@${player.id}> has ~${seconds} seconds remaining to play "Sorry For You")`,
+        // show player card
+        () =>
+          interaction.followUp({
+            content: `You drew a ${card.getName()} (${card.getImage()}), and <@${raider.id}> is attempting to raid your camp and steal it`,
             flags: MessageFlags.Ephemeral,
-          });
-          return await interaction.followUp({
-            content: `<@${player.id}> drew a card.`,
-            flags: undefined,
-          });
-        }
-
-        const elapsed = Date.now() - startTime;
-        const remaining = Math.max(
-          0,
-          Math.ceil((countdownDuration - elapsed) / 1000),
+          }),
+      );
+      if (!window) {
+        // Someone else's Sorry for You window is open; try again in a moment.
+        Game.deck.addCard(card);
+        return replyEphemeral(
+          interaction,
+          "This action cannot be played at this time. Wait a moment and try again.",
         );
-
-        // Only update the message when the second actually changes
-        if (remaining !== lastDisplayedSecond) {
-          lastDisplayedSecond = remaining;
-          await interaction.editReply({
-            content: `<@${player.campRaid.id}> is attempting to steal <@${player.id}>'s draw... (<@${player.id}> has ~${remaining} seconds remaining to play "Sorry For You")`,
-          });
-        }
-
-        await new Promise((resolve) => setTimeout(resolve, 100)); // Check more frequently but update less
       }
-
-      await interaction.editReply({
-        content: `<@${player.campRaid.id}> has stolen a card from <@${player.id}>!!!`,
-      });
-
-      // add card to camp raid hand
-      player.campRaid.hand.push(card);
-
-      // Send DM to target player about receiving the card
-      try {
-        const targetUser = await interaction.client.users.fetch(
-          player.campRaid.id,
-        );
-        await targetUser.send(
-          `You received **${card.getName()}** from <@${player.id}> from your camp raid!`,
-        );
-      } catch (error) {
-        console.log(`Could not send DM to <@${player.campRaid.id}>:`, error);
-      }
-
-      await interaction.followUp({
-        content: `<@${player.id}> drew a card, but it was stolen by <@${player.campRaid.id}>`,
-        flags: undefined,
-      });
 
       player.campRaid = undefined;
+      const next = Game.advanceTurn(player);
+      const nextTurn = next ? ` It's <@${next.id}>'s turn.` : "";
 
-      return;
+      if (window.outcome === "stopped") {
+        player.hand.push(card);
+        await interaction.editReply({
+          content: `Steal attempt was interrupted with ${window.secondsLeft} seconds remaining`,
+        });
+        await interaction.followUp({
+          content: `You drew a ${card.getName()} (${card.getImage()}).`,
+          flags: MessageFlags.Ephemeral,
+        });
+        return interaction.followUp({ content: `<@${player.id}> drew a card.${nextTurn}` });
+      }
+
+      // add card to camp raid hand
+      raider.hand.push(card);
+      await interaction.editReply({
+        content: `<@${raider.id}> has stolen a card from <@${player.id}>!!!`,
+      });
+      await sendDM(
+        interaction.client,
+        raider.id,
+        `You received **${card.getName()}** from <@${player.id}> from your camp raid!`,
+      );
+      return interaction.followUp({
+        content: `<@${player.id}> drew a card, but it was stolen by <@${raider.id}>.${nextTurn}`,
+      });
     }
 
     player.hand.push(card);
+    const next = Game.advanceTurn(player);
     await interaction.reply({
       content: `You drew a ${card.getName()} (${card.getImage()}).`,
       flags: MessageFlags.Ephemeral,
     });
-    return await interaction.followUp({
-      content: `<@${player.id}> drew a card.`,
-      flags: undefined,
+    return interaction.followUp({
+      content: `<@${player.id}> drew a card.${next ? ` It's <@${next.id}>'s turn.` : ""}`,
     });
   },
 };

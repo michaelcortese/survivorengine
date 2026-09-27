@@ -1,10 +1,6 @@
-// TODO REFACTOR
-import {
-  SlashCommandBuilder,
-  ChatInputCommandInteraction,
-  MessageFlags,
-} from "discord.js";
+import { SlashCommandBuilder, ChatInputCommandInteraction } from "discord.js";
 import { Game } from "../../game/game";
+import { replyEphemeral } from "../../util/discord";
 
 export default {
   data: new SlashCommandBuilder()
@@ -18,28 +14,21 @@ export default {
     ),
   async execute(interaction: ChatInputCommandInteraction) {
     if (!Game.active) {
-      return interaction.reply("No game is currently in progress!");
+      return replyEphemeral(interaction, "No game is currently in progress!");
     }
-    const targetUser = interaction.options.getUser("player");
-    if (!targetUser) {
-      return interaction.reply({
-        content: "Invalid user specified",
-        flags: MessageFlags.Ephemeral,
-      });
-    }
-
+    const targetUser = interaction.options.getUser("player", true);
     const player = Game.getPlayerFromUserId(targetUser.id);
     if (!player) {
-      return interaction.reply({
-        content: "The mentioned user is not a player in the current game",
-        flags: MessageFlags.Ephemeral,
-      });
+      return replyEphemeral(
+        interaction,
+        "The mentioned user is not a player in the current game",
+      );
     }
 
     const cardCount = player.hand.length;
-    await interaction.reply({
-      content: `<@${player.id}> has ${cardCount} card${cardCount !== 1 ? "s" : ""} in their hand.`,
-      flags: MessageFlags.Ephemeral,
-    });
+    return replyEphemeral(
+      interaction,
+      `<@${player.id}> has ${cardCount} card${cardCount !== 1 ? "s" : ""} in their hand.`,
+    );
   },
 };

@@ -1,16 +1,9 @@
-import {
-  SlashCommandBuilder,
-  ChatInputCommandInteraction,
-  MessageFlags,
-} from "discord.js";
+import { SlashCommandBuilder, ChatInputCommandInteraction } from "discord.js";
 import { Game, TribalCouncilState } from "../../game/game";
+import { CardName } from "../../game/cards";
+import { replyEphemeral } from "../../util/discord";
 
-const HAS_TARGET = true;
-const REQUIRED_CARD = "Idol Nullifier";
-const INTERRUPTIBLE = false;
-const STOPPING_INTERACTION = true;
-const CAN_PLAY_DURING_TRIBAL_COUNCIL = true;
-const ONLY_DURING_TRIBAL_COUNCIL = true;
+const REQUIRED_CARD = CardName.IdolNullifier;
 
 export default {
   data: new SlashCommandBuilder()
@@ -27,105 +20,55 @@ export default {
         .setRequired(true),
     ),
   async execute(interaction: ChatInputCommandInteraction) {
-    // Check if we're in the nullify phase of tribal council
-    if (Game.tribalCouncilState !== TribalCouncilState.Nullify) {
-      return interaction.reply({
-        content:
-          "Idol Nullifiers can only be played after an immunity idol but before votes are tallied!",
-        flags: MessageFlags.Ephemeral,
-      });
-    }
-
-    const result = Game.checkForError(
-      interaction,
-      false, // We'll handle target manually
-      null, // Don't check for card yet, we'll do it after target validation
-      INTERRUPTIBLE,
-      STOPPING_INTERACTION,
-      CAN_PLAY_DURING_TRIBAL_COUNCIL,
-      ONLY_DURING_TRIBAL_COUNCIL,
-    );
-
+    const result = Game.validateAction(interaction, {
+      target: true,
+      requiredCard: REQUIRED_CARD,
+      tribalCouncil: [TribalCouncilState.Nullify],
+      phaseError:
+        "Idol Nullifiers can only be played after an immunity idol but before votes are tallied!",
+    });
     if ("error" in result) {
-      return interaction.reply({
-        content: result.error.content,
-        flags: MessageFlags.Ephemeral,
-      });
+      return replyEphemeral(interaction, result.error);
     }
-
-    const { player } = result;
-
-    // Check if player has the required card before validating target
-    if (!player.hasCard(REQUIRED_CARD)) {
-      return interaction.reply({
-        content: `You must have the ${REQUIRED_CARD} card to play this action!`,
-        flags: MessageFlags.Ephemeral,
-      });
-    }
-
-    // Get the target player manually
-    const targetUserId = interaction.options.getUser("player")?.id;
-    if (!targetUserId) {
-      return interaction.reply({
-        content: "You must specify which player's idol to nullify!",
-        flags: MessageFlags.Ephemeral,
-      });
-    }
-
-    const targetPlayer = Game.getPlayerFromUserId(targetUserId);
+    const { player, targetPlayer } = result;
     if (!targetPlayer) {
-      return interaction.reply({
-        content: "The specified player is not in the game!",
-        flags: MessageFlags.Ephemeral,
-      });
+      return replyEphemeral(interaction, "You must specify which player's idol to nullify!");
     }
 
-    // Check if there's an active tribal council and idol protection
-    if (!Game.tribalCouncil) {
-      return interaction.reply({
-        content: "No tribal council is currently active!",
-        flags: MessageFlags.Ephemeral,
-      });
+    const tribalCouncil = Game.tribalCouncil;
+    if (!tribalCouncil) {
+      return replyEphemeral(interaction, "No tribal council is currently active!");
     }
-
-    const tribalCouncil = Game.tribalCouncil as any;
 
     // Find the idol played by the target player
     const targetIdol = tribalCouncil.idolProtections.find(
-      (protection: any) => protection.playedBy === targetPlayer,
+      (protection) => protection.playedBy === targetPlayer,
     );
 
     if (!targetIdol) {
       const playersWithIdols = tribalCouncil.idolProtections.map(
-        (protection: any) => `<@${protection.playedBy.id}>`,
+        (protection) => `<@${protection.playedBy.id}>`,
       );
-
       let errorMessage = `<@${targetPlayer.id}> has not played an immunity idol to nullify!`;
-
       if (playersWithIdols.length > 0) {
         errorMessage += ` Players who have played idols: ${playersWithIdols.join(", ")}`;
       } else {
         errorMessage += ` No players have played immunity idols yet.`;
       }
-
-      return interaction.reply({
-        content: errorMessage,
-        flags: MessageFlags.Ephemeral,
-      });
+      return replyEphemeral(interaction, errorMessage);
     }
 
     // Check if this idol was already nullified
     const alreadyNullified = tribalCouncil.idolNullifications.some(
-      (nullification: any) =>
+      (nullification) =>
         nullification.originalIdolPlayer === targetIdol.playedBy &&
         nullification.originalProtectedPlayer === targetIdol.protectedPlayer,
     );
-
     if (alreadyNullified) {
-      return interaction.reply({
-        content: `<@${targetPlayer.id}>'s immunity idol has already been nullified!`,
-        flags: MessageFlags.Ephemeral,
-      });
+      return replyEphemeral(
+        interaction,
+        `<@${targetPlayer.id}>'s immunity idol has already been nullified!`,
+      );
     }
 
     // All validations passed, now remove the card
@@ -143,10 +86,13 @@ export default {
       targetIdol.protectedPlayer === targetIdol.playedBy
         ? "themselves"
         : `<@${targetIdol.protectedPlayer.id}>`;
+    const votesFor =
+      targetIdol.protectedPlayer === targetIdol.playedBy
+        ? `<@${targetIdol.protectedPlayer.id}>`
+        : protectedText;
 
     await interaction.reply({
-      content: `<@${player.id}> has played an **Idol Nullifier** targeting <@${targetPlayer.id}>! <@${targetIdol.playedBy.id}>'s immunity idol that was protecting ${protectedText} has been canceled. Votes for ${protectedText} will now count.`,
-      ephemeral: false,
+      content: `<@${player.id}> has played an **Idol Nullifier** targeting <@${targetPlayer.id}>! <@${targetIdol.playedBy.id}>'s immunity idol that was protecting ${protectedText} has been canceled. Votes for ${votesFor} will now count.`,
     });
   },
 };

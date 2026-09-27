@@ -1,16 +1,9 @@
-import {
-  SlashCommandBuilder,
-  ChatInputCommandInteraction,
-  MessageFlags,
-} from "discord.js";
+import { SlashCommandBuilder, ChatInputCommandInteraction } from "discord.js";
 import { Game, TribalCouncilState } from "../../game/game";
+import { CardName } from "../../game/cards";
+import { replyEphemeral } from "../../util/discord";
 
-const HAS_TARGET = true;
-const REQUIRED_CARD = "Immunity Idol";
-const INTERRUPTIBLE = false;
-const STOPPING_INTERACTION = true;
-const CAN_PLAY_DURING_TRIBAL_COUNCIL = true;
-const ONLY_DURING_TRIBAL_COUNCIL = true;
+const REQUIRED_CARD = CardName.ImmunityIdol;
 
 export default {
   data: new SlashCommandBuilder()
@@ -27,86 +20,36 @@ export default {
         .setRequired(false),
     ),
   async execute(interaction: ChatInputCommandInteraction) {
-    // Check if we're in the immunity phase of tribal council
-    if (Game.tribalCouncilState !== TribalCouncilState.Immunity) {
-      return interaction.reply({
-        content:
-          "Immunity Idols can only be played after voting but before votes are tallied!",
-        flags: MessageFlags.Ephemeral,
-      });
-    }
-
-    const result = Game.checkForError(
-      interaction,
-      false, // We'll handle target manually since it's optional
-      null, // Don't check for card yet, we'll do it after target validation
-      INTERRUPTIBLE,
-      STOPPING_INTERACTION,
-      CAN_PLAY_DURING_TRIBAL_COUNCIL,
-      ONLY_DURING_TRIBAL_COUNCIL,
-    );
-
+    const result = Game.validateAction(interaction, {
+      target: "optional",
+      allowSelfTarget: true,
+      requiredCard: REQUIRED_CARD,
+      tribalCouncil: [TribalCouncilState.Immunity],
+      phaseError:
+        "Immunity Idols can only be played after voting but before votes are tallied!",
+    });
     if ("error" in result) {
-      return interaction.reply({
-        content: result.error.content,
-        flags: MessageFlags.Ephemeral,
-      });
+      return replyEphemeral(interaction, result.error);
     }
-
     const { player } = result;
+    // Default to self
+    const targetPlayer = result.targetPlayer ?? player;
 
-    // Check if player has the required card before validating target
-    if (!player.hasCard(REQUIRED_CARD)) {
-      return interaction.reply({
-        content: `You must have the ${REQUIRED_CARD} card to play this action!`,
-        flags: MessageFlags.Ephemeral,
-      });
-    }
-
-    // Determine the target (self if no target specified)
-    const targetUserId = interaction.options.getUser("target")?.id;
-    let targetPlayer = player; // Default to self
-
-    if (targetUserId) {
-      const specifiedTarget = Game.getPlayerFromUserId(targetUserId);
-      if (!specifiedTarget) {
-        return interaction.reply({
-          content: "The specified player is not in the game!",
-          flags: MessageFlags.Ephemeral,
-        });
-      }
-      if (!specifiedTarget.isAlive()) {
-        return interaction.reply({
-          content: "You cannot play an idol on an eliminated player!",
-          flags: MessageFlags.Ephemeral,
-        });
-      }
-      targetPlayer = specifiedTarget;
-    }
-
-    // Store the idol information in the game state for vote tallying
-    if (!Game.tribalCouncil) {
-      return interaction.reply({
-        content: "No tribal council is currently active!",
-        flags: MessageFlags.Ephemeral,
-      });
+    const tribalCouncil = Game.tribalCouncil;
+    if (!tribalCouncil) {
+      return replyEphemeral(interaction, "No tribal council is currently active!");
     }
 
     // All validations passed, now remove the card
     player.removeCard(REQUIRED_CARD);
 
-    // Add idol protection to the tribal council
-    (Game.tribalCouncil as any).idolProtections.push({
+    // Add idol protection to the tribal council; multiple idols may be played
+    tribalCouncil.idolProtections.push({
       protectedPlayer: targetPlayer,
       playedBy: player,
     });
 
-    // Check if we should end the idol period (could add logic here for max idols, etc.)
-    // For now, let the timer continue to allow multiple idols
-
-    const targetText =
-      targetPlayer === player ? `<@${player.id}>` : `<@${targetPlayer.id}>`;
-
+    const targetText = `<@${targetPlayer.id}>`;
     await interaction.reply({
       content: `<@${player.id}> has played an **Immunity Idol** to protect ${targetText}! Any votes cast for ${targetText} will not count.`,
     });

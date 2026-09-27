@@ -1,29 +1,19 @@
-import Deck from "./deck";
-import Player from "./player";
-import Card from "./card";
-import { TribalCouncil } from "./tribal_council";
-
 import {
   ChatInputCommandInteraction,
-  InteractionResponse,
-  MessageFlags,
+  Message,
+  MessageCreateOptions,
+  PermissionFlagsBits,
+  SendableChannels,
 } from "discord.js";
-
-const CARDS_PER_PLAYER = 3;
-// When changing, also change in steal_random.ts
-// TODO: Make this a config variable
-const INTERRUPT_WAIT_TIME = 1000 * 15; // 15 seconds
-
-/**
- * Interface for any kind of interaction that can be interrupted with a "Sorry for You" card
- * TODO: see if we can make this work with idol nullifier
- */
-interface Interruption {
-  active: boolean;
-  target: Player | null;
-  sender: Player | null;
-  stopped: boolean; // Indicates if the interruption was stopped
-}
+import Deck from "./deck";
+import Player from "./player";
+import type Card from "./card";
+import type { Castaway } from "./castaways";
+import { pickRandomCastaways, TRIBE_COLORS } from "./castaways";
+import { GameConfig } from "./config";
+import type { TribalCouncil } from "./tribal_council";
+import type { FinalTribalCouncil } from "./final_tribal_council";
+import type { Lobby } from "./lobby";
 
 enum TribalCouncilState {
   NotStarted,
@@ -35,67 +25,145 @@ enum TribalCouncilState {
   FINAL,
 }
 
-interface GameState {
-  active: boolean;
-  interruption: Interruption;
-  players: Player[];
-  currentPlayerIndex: number;
-  deck: Deck;
-  interruptionTimeoutId: NodeJS.Timeout | null;
-  tribalCouncilState: TribalCouncilState;
-  tribalCouncilLeader: Player | null;
-  tribalCouncil: TribalCouncil | null;
-  finalTribalLeader: Player | null;
-  startGame: (players: Player[]) => void;
-  updatePlayerHand: (playerId: string, card: Card) => void;
-  getPlayer: (username: string) => Player | undefined;
-  getPlayerFromUserId: (userId: string) => Player | undefined;
-  nextPlayer: () => Player | undefined;
-  getAlivePlayers: () => Player[];
-  startCooldown: (sender: Player, target: Player) => void;
-  stopInterruption: () => void;
-  checkForError: (
-    interaction: ChatInputCommandInteraction,
-    hasTarget: boolean,
-    requiredCard: string | null,
-    interruptible: boolean,
-    stoppingInteraction?: boolean,
-    canPlayDuringTribalCouncil?: boolean,
-    onlyDuringTribalCouncil?: boolean,
-  ) =>
-    | { error: { content: string; flags: MessageFlags | undefined } }
-    | { player: Player; targetPlayer?: Player };
-  setTribalCouncil: (tribalCouncil: TribalCouncil | null) => void;
+type InterruptionOutcome = "stopped" | "expired";
+
+/**
+ * A pending attempt to take cards from someone. The target can block it with
+ * Sorry for You until the window closes.
+ */
+interface Interruption {
+  attacker: Player;
+  target: Player;
+  settle: (outcome: InterruptionOutcome) => void;
 }
 
-const Game: GameState = {
-  active: false,
-  interruption: {
-    active: false,
-    target: null,
-    sender: null,
-    stopped: false,
-  },
-  players: [],
-  currentPlayerIndex: 0,
-  deck: new Deck(),
-  interruptionTimeoutId: null,
-  tribalCouncilState: TribalCouncilState.NotStarted,
-  tribalCouncilLeader: null,
-  tribalCouncil: null,
-  finalTribalLeader: null,
+/** When an action may be taken relative to Tribal Council. */
+type TribalTiming = "forbidden" | "allowed" | TribalCouncilState[];
 
-  startGame(players: Player[]): void {
-    this.active = true;
+interface ActionRules {
+  /** Card the action requires. Only checked here: commands remove it once the play is valid. */
+  requiredCard?: string | null;
+  /** Whether the command names another player in its `player` option. */
+  target?: boolean | "optional";
+  /** Blocked while someone's Sorry for You window is open. */
+  interruptible?: boolean;
+  /** Defaults to "forbidden". A list of states means "only during these phases". */
+  tribalCouncil?: TribalTiming;
+  /** Error shown when the Tribal Council phase doesn't match the list. */
+  phaseError?: string;
+  /** Lets voted-out players (the jury) use it. */
+  allowEliminated?: boolean;
+  allowSelfTarget?: boolean;
+  allowEliminatedTarget?: boolean;
+}
+
+type ActionCheck =
+  | { error: string }
+  | { player: Player; targetPlayer?: Player };
+
+interface VoteOutOutcome {
+  player: Player;
+  /** The castaway that was turned over. */
+  castaway: Castaway | undefined;
+  /** True when that was the player's last castaway. */
+  eliminated: boolean;
+  /** Who played this player's Inheritance card and took their hand. */
+  heir?: Player;
+  inheritedCards: Card[];
+  /** Cards discarded because nobody held the Inheritance card. */
+  discardedCount: number;
+}
+
+interface StartOptions {
+  /** Channel for public announcements (tribe board, turns, Final Tribal). */
+  channel?: SendableChannels | null;
+  discussionMs?: number;
+  /** Randomize the seating / turn order (default true). */
+  shuffleSeats?: boolean;
+}
+
+function shuffleInPlace<T>(items: T[]): T[] {
+  for (let i = items.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [items[i], items[j]] = [items[j], items[i]];
+  }
+  return items;
+}
+
+class GameManager {
+  /** Bumped on every new game or reset, so long-running flows can tell they're stale. */
+  id = 0;
+  active = false;
+  players: Player[] = [];
+  currentPlayerIndex = 0;
+  deck = new Deck();
+  channel: SendableChannels | null = null;
+  interruption: Interruption | null = null;
+  tribalCouncilState = TribalCouncilState.NotStarted;
+  tribalCouncil: TribalCouncil | null = null;
+  /** Number of Tribal Councils held so far this game. */
+  tribalCouncilCount = 0;
+  finalTribalLeader: Player | null = null;
+  finalTribalCouncil: FinalTribalCouncil | null = null;
+  winner: Player | null = null;
+  lobby: Lobby | null = null;
+  discussionMs = GameConfig.timings.discussionMs;
+
+  /** Ends any game or lobby in progress and clears all state. */
+  reset(lobbyCloseReason?: string): void {
+    this.id++;
+    this.active = false;
+    this.tribalCouncil?.dispose();
+    this.finalTribalCouncil?.dispose();
+    this.lobby?.dispose(lobbyCloseReason);
+    this.interruption?.settle("stopped");
+    this.interruption = null;
+    this.players = [];
     this.currentPlayerIndex = 0;
-    this.deck.addInheritanceCards(players);
+    this.deck = new Deck();
+    this.channel = null;
+    this.tribalCouncilState = TribalCouncilState.NotStarted;
+    this.tribalCouncil = null;
+    this.tribalCouncilCount = 0;
+    this.finalTribalLeader = null;
+    this.finalTribalCouncil = null;
+    this.winner = null;
+    this.lobby = null;
+    this.discussionMs = GameConfig.timings.discussionMs;
+  }
+
+  startGame(players: Player[], options: StartOptions = {}): void {
+    this.reset("A game was started with /start instead.");
+    this.players =
+      options.shuffleSeats === false ? [...players] : shuffleInPlace([...players]);
+    this.channel = options.channel ?? null;
+    if (options.discussionMs !== undefined) {
+      this.discussionMs = options.discussionMs;
+    }
+
+    // Tribe colors by seat, and random legends for anyone who didn't pick castaways.
+    const chosenNames = this.players.flatMap((player) =>
+      player.castaways.filter((c) => c.chosen).map((c) => c.name),
+    );
+    this.players.forEach((player, seat) => {
+      player.color = TRIBE_COLORS[seat % TRIBE_COLORS.length];
+      const missing = player.castaways.filter((c) => !c.chosen);
+      const picks = pickRandomCastaways(missing.length, chosenNames);
+      missing.forEach((castaway, i) => {
+        castaway.name = picks[i];
+        castaway.chosen = true;
+        chosenNames.push(picks[i]);
+      });
+    });
+
+    this.deck = new Deck();
+    this.deck.addInheritanceCards(this.players);
     this.deck.shuffle();
-    this.players = players;
 
     // Deal initial hands to players
     for (const player of this.players) {
       player.hand = [];
-      for (let i = 0; i < CARDS_PER_PLAYER; i++) {
+      for (let i = 0; i < GameConfig.cardsPerPlayer; i++) {
         const card = this.deck.drawCard();
         if (card) {
           player.hand.push(card);
@@ -106,180 +174,265 @@ const Game: GameState = {
     }
 
     this.deck.shuffle();
-    this.deck.addAndDisperseTribalCouncilCards(players.length);
+    this.deck.addAndDisperseTribalCouncilCards(this.players.length);
+    this.active = true;
+    this.currentPlayerIndex = 0;
     console.log("Game started!");
-  },
+  }
 
-  updatePlayerHand(playerId: string, card: Card): void {
-    const player = this.getPlayerFromUserId(playerId);
-    if (player) {
-      player.hand.push(card);
-    } else {
-      console.error(`Player with ID ${playerId} not found.`);
-    }
-  },
+  isCurrentGame(gameId: number): boolean {
+    return this.id === gameId;
+  }
 
   getPlayer(username: string): Player | undefined {
     return this.players.find((player) => player.username === username);
-  },
+  }
 
   getPlayerFromUserId(userId: string): Player | undefined {
     return this.players.find((player) => player.id === userId);
-  },
+  }
 
-  nextPlayer(): Player | undefined {
-    if (!this.active) {
-      console.error("Game is not active!");
-      return undefined;
-    }
-    this.currentPlayerIndex =
-      (this.currentPlayerIndex + 1) % this.players.length;
+  getAlivePlayers(): Player[] {
+    return this.players.filter((player) => player.isAlive());
+  }
+
+  setTribalCouncil(tribalCouncil: TribalCouncil | null) {
+    this.tribalCouncil = tribalCouncil;
+  }
+
+  /** The player whose turn it is. */
+  currentPlayer(): Player | undefined {
     return this.players[this.currentPlayerIndex];
-  },
+  }
 
-  startCooldown: (sender: Player, target: Player) => {
-    Game.interruption.active = true;
-    Game.interruption.sender = sender;
-    Game.interruption.target = target;
-    Game.interruption.stopped = false;
-
-    Game.interruptionTimeoutId = setTimeout(() => {
-      Game.interruption.active = false;
-      Game.interruption.sender = null;
-      Game.interruption.target = null;
-      Game.interruption.stopped = false;
-      Game.interruptionTimeoutId = null;
-    }, INTERRUPT_WAIT_TIME);
-  },
-
-  stopInterruption: () => {
-    if (Game.interruptionTimeoutId) {
-      clearTimeout(Game.interruptionTimeoutId);
-      Game.interruptionTimeoutId = null;
+  /** Passes the turn to the next player still in the game after `from`. */
+  advanceTurn(from: Player | undefined = this.currentPlayer()): Player | undefined {
+    if (this.players.length === 0) return undefined;
+    const start = from ? this.players.indexOf(from) : this.currentPlayerIndex;
+    for (let step = 1; step <= this.players.length; step++) {
+      const index = (start + step + this.players.length) % this.players.length;
+      if (this.players[index].isAlive()) {
+        this.currentPlayerIndex = index;
+        return this.players[index];
+      }
     }
-    Game.interruption.active = false;
-    Game.interruption.sender = null;
-    Game.interruption.target = null;
-    Game.interruption.stopped = true;
-  },
+    return undefined;
+  }
 
-  checkForError(
-    interaction,
-    hasTarget,
-    requiredCard,
-    interruptible,
-    stoppingInteraction = false,
-    canPlayDuringTribalCouncil = false,
-    onlyDuringTribalCouncil = false,
-  ) {
-    if (!Game.active) {
-      return {
-        error: {
-          content: "No game is currently in progress!",
-          flags: MessageFlags.Ephemeral,
+  /** Makes it `player`'s turn, or the next player's if they're out of the game. */
+  setTurn(player: Player): Player | undefined {
+    if (!player.isAlive()) return this.advanceTurn(player);
+    this.currentPlayerIndex = this.players.indexOf(player);
+    return player;
+  }
+
+  /**
+   * Opens the Sorry for You window: `target` can block `attacker` until it
+   * closes. Returns null if another window is already open.
+   */
+  openInterruptWindow(
+    attacker: Player,
+    target: Player,
+    durationMs = GameConfig.timings.sorryForYouWindowMs,
+  ): Promise<InterruptionOutcome> | null {
+    if (this.interruption) return null;
+    return new Promise((resolve) => {
+      let settled = false;
+      const interruption: Interruption = {
+        attacker,
+        target,
+        settle: (outcome) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          if (this.interruption === interruption) this.interruption = null;
+          resolve(outcome);
         },
+      };
+      const timer = setTimeout(() => interruption.settle("expired"), durationMs);
+      this.interruption = interruption;
+    });
+  }
+
+  /** Blocks the open window (Sorry for You) and returns whoever was blocked. */
+  blockInterruption(): Player | null {
+    const interruption = this.interruption;
+    if (!interruption) return null;
+    interruption.settle("stopped");
+    return interruption.attacker;
+  }
+
+  /**
+   * Shared validation for commands. Checks the game is running, the caller is
+   * an active player, the target is valid, the timing is right, and that they
+   * hold the required card (without removing it).
+   */
+  validateAction(
+    interaction: ChatInputCommandInteraction,
+    rules: ActionRules = {},
+  ): ActionCheck {
+    if (!this.active) {
+      return {
+        error: this.winner
+          ? `This game is over — <@${this.winner.id}> won! Start a new one with /setup or /start.`
+          : "No game is currently in progress!",
       };
     }
 
-    const player = Game.getPlayerFromUserId(interaction.user.id);
+    const player = this.getPlayerFromUserId(interaction.user.id);
     if (!player) {
+      return { error: "You are not a player in the current game!" };
+    }
+    if (!rules.allowEliminated && !player.isAlive()) {
       return {
-        error: {
-          content: "You are not a player in the current game!",
-          flags: MessageFlags.Ephemeral,
-        },
+        error: "You've been voted out of the game, so you can't do that. You're on the jury now!",
       };
     }
 
     let targetPlayer: Player | undefined;
-    if (hasTarget) {
-      const targetUserId =
-        interaction.options.getUser("player")?.id ||
-        interaction.options.getUser("target")?.id;
-      if (!targetUserId) {
-        return {
-          error: {
-            content: "You must specify a target player!",
-            flags: MessageFlags.Ephemeral,
-          },
-        };
+    if (rules.target) {
+      const targetUser =
+        interaction.options.getUser("player") ??
+        interaction.options.getUser("target");
+      if (!targetUser && rules.target !== "optional") {
+        return { error: "You must specify a target player!" };
       }
-      targetPlayer = Game.getPlayerFromUserId(targetUserId);
-      if (!targetPlayer) {
-        return {
-          error: {
-            content: "The specified player is not in the game!",
-            flags: MessageFlags.Ephemeral,
-          },
-        };
+      if (targetUser) {
+        targetPlayer = this.getPlayerFromUserId(targetUser.id);
+        if (!targetPlayer) {
+          return { error: "The specified player is not in the game!" };
+        }
+        if (!rules.allowSelfTarget && targetPlayer === player) {
+          return { error: "You can't target yourself with that!" };
+        }
+        if (!rules.allowEliminatedTarget && !targetPlayer.isAlive()) {
+          return {
+            error: `<@${targetPlayer.id}> has already been voted out of the game.`,
+          };
+        }
       }
     }
-    // TODO: i fucking cant with these booleans
-    if (
-      !canPlayDuringTribalCouncil &&
-      Game.tribalCouncilState !== TribalCouncilState.NotStarted
-    ) {
+
+    const timing = rules.tribalCouncil ?? "forbidden";
+    const state = this.tribalCouncilState;
+    if (timing === "forbidden" && state !== TribalCouncilState.NotStarted) {
       return {
-        error: {
-          content: "This action cannot be played during the tribal council!",
-          flags: MessageFlags.Ephemeral,
-        },
+        error:
+          state === TribalCouncilState.FINAL
+            ? "The game is at Final Tribal Council — only the jury's votes matter now."
+            : "This action cannot be played during the tribal council!",
+      };
+    }
+    if (Array.isArray(timing) && !timing.includes(state)) {
+      return {
+        error:
+          state === TribalCouncilState.NotStarted
+            ? "This action cannot be played outside of tribal council!"
+            : (rules.phaseError ??
+              "You can't do that at this point in Tribal Council."),
       };
     }
 
-    if (
-      Game.tribalCouncilState === TribalCouncilState.NotStarted &&
-      onlyDuringTribalCouncil
-    ) {
+    if (rules.interruptible && this.interruption) {
       return {
-        error: {
-          content: "This action cannot be played outside of tribal council!",
-          flags: MessageFlags.Ephemeral,
-        },
+        error:
+          "This action cannot be played at this time. Wait a moment and try again.",
       };
     }
 
-    if (interruptible && Game.interruption.active) {
+    if (rules.requiredCard && !player.hasCard(rules.requiredCard)) {
       return {
-        error: {
-          content:
-            "This action cannot be played at this time. Wait a moment and try again.",
-          flags: MessageFlags.Ephemeral,
-        },
+        error: `You must have the ${rules.requiredCard} card to play this action!`,
       };
     }
 
-    if (stoppingInteraction && !Game.interruption.active) {
+    return { player, targetPlayer };
+  }
+
+  /** Castaways voted out so far across all players. */
+  totalVoteOuts(): number {
+    return this.players.reduce(
+      (total, player) => total + player.castaways.filter((c) => c.lost).length,
+      0,
+    );
+  }
+
+  /**
+   * Turns over one castaway for each player voted out. Players who lose their
+   * last castaway are eliminated: per the official rules their hand goes to
+   * whoever holds their Inheritance card, otherwise it is discarded.
+   */
+  applyVoteOuts(votedOut: Player[]): VoteOutOutcome[] {
+    const outcomes: VoteOutOutcome[] = votedOut.map((player) => {
+      const castaway = player.loseLife(this.tribalCouncilCount);
       return {
-        error: {
-          content: "There is no interaction to stop!",
-          flags: MessageFlags.Ephemeral,
-        },
+        player,
+        castaway,
+        eliminated: !player.isAlive(),
+        inheritedCards: [],
+        discardedCount: 0,
       };
+    });
+
+    // Hands are settled after every vote-out has landed, so someone going home
+    // in the same double elimination can't inherit.
+    for (const outcome of outcomes) {
+      if (!outcome.eliminated) continue;
+      const eliminated = outcome.player;
+      const heir = this.players.find(
+        (p) =>
+          p.isAlive() &&
+          p.hand.some((card) => card.inheritancePlayer === eliminated),
+      );
+      if (heir) {
+        const inheritanceIndex = heir.hand.findIndex(
+          (card) => card.inheritancePlayer === eliminated,
+        );
+        heir.hand.splice(inheritanceIndex, 1); // the Inheritance card is played
+        outcome.heir = heir;
+        outcome.inheritedCards = [...eliminated.hand];
+        heir.hand.push(...eliminated.hand);
+      } else {
+        outcome.discardedCount = eliminated.hand.length;
+      }
+      eliminated.hand = [];
+      eliminated.votes = 0;
+      // Camp Raids by or on an eliminated player no longer do anything.
+      eliminated.campRaid = undefined;
+      for (const player of this.players) {
+        if (player.campRaid === eliminated) player.campRaid = undefined;
+      }
     }
 
-    // Remove card if they have it and error if not
-
-    if (requiredCard && !player.hasCard(requiredCard)) {
-      return {
-        error: {
-          content: `You must have the ${requiredCard} card to play this action!`,
-          flags: MessageFlags.Ephemeral,
-        },
-      };
-    } else if (requiredCard && player.hasCard(requiredCard)) {
-      player.removeCard(requiredCard);
+    if (this.getAlivePlayers().length === 2) {
+      const lastOut = [...outcomes].reverse().find((o) => o.eliminated);
+      if (lastOut) this.finalTribalLeader = lastOut.player;
     }
+    return outcomes;
+  }
 
-    // Success case - return player references
-    return hasTarget ? { player, targetPlayer: targetPlayer! } : { player };
-  },
-  setTribalCouncil(tribalCouncil: TribalCouncil | null) {
-    Game.tribalCouncil = tribalCouncil;
-  },
-  getAlivePlayers(): Player[] {
-    return Game.players.filter((player) => player.isAlive());
-  },
-};
+  /** Posts a public message in the game's channel. */
+  async announce(payload: string | MessageCreateOptions): Promise<Message | null> {
+    if (!this.channel) return null;
+    try {
+      return await this.channel.send(payload);
+    } catch (error) {
+      console.error("Failed to post game announcement:", error);
+      return null;
+    }
+  }
 
-export { Game, TribalCouncilState, GameState };
+  /** Players in the game, the lobby host, and server managers can end or reset it. */
+  canManage(interaction: ChatInputCommandInteraction): boolean {
+    return (
+      this.players.some((player) => player.id === interaction.user.id) ||
+      this.lobby?.hostId === interaction.user.id ||
+      interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild) === true
+    );
+  }
+}
+
+const Game = new GameManager();
+
+export { Game, GameManager, TribalCouncilState };
+export type { ActionRules, ActionCheck, VoteOutOutcome, InterruptionOutcome };
