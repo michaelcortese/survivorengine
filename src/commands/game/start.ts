@@ -1,11 +1,13 @@
 import { SlashCommandBuilder, ChatInputCommandInteraction } from "discord.js";
 import { Game } from "../../game/game";
 import Player from "../../game/player";
+import { buildBoardMessage } from "../../game/board";
+import { replyEphemeral, sendableChannel, userInfo } from "../../util/discord";
 
 export default {
   data: new SlashCommandBuilder()
     .setName("start")
-    .setDescription("Starts a new game")
+    .setDescription("Quick-start a game with random castaways (use /setup to let players pick)")
     .addUserOption((option) => {
       return option
         .setName("player1")
@@ -41,10 +43,20 @@ export default {
         .setName("player6")
         .setDescription("player six")
         .setRequired(false);
-    }),
+    })
+    .addNumberOption((option) =>
+      option
+        .setName("discussion_minutes")
+        .setDescription("Tribal Council discussion time in minutes (default 3)")
+        .setMinValue(0.5)
+        .setMaxValue(15),
+    ),
   async execute(interaction: ChatInputCommandInteraction) {
     if (Game.active) {
-      return interaction.reply("A game is already in progress!");
+      return replyEphemeral(
+        interaction,
+        "A game is already in progress! Use /end_game to end it first.",
+      );
     }
 
     const users = [
@@ -60,26 +72,35 @@ export default {
       }
     }
 
-    const players: Player[] = [];
-    for (const user of users) {
-      players.push(new Player(user.id, user.displayName));
+    if (new Set(users.map((user) => user.id)).size !== users.length) {
+      return replyEphemeral(interaction, "Each player can only be listed once.");
+    }
+    if (users.some((user) => user.bot)) {
+      return replyEphemeral(interaction, "Bots can't play Survivor.");
     }
 
-    // Shuffle the players array for random turn order
-    for (let i = players.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [players[i], players[j]] = [players[j], players[i]];
-    }
+    const players = users.map((user) => {
+      const info = userInfo(user);
+      const player = new Player(info.id, info.displayName);
+      player.avatarUrl = info.avatarUrl;
+      return player;
+    });
 
-    Game.startGame(players);
-    await interaction.reply("Game started! " + "<@" + Game.players[Game.currentPlayerIndex].id + "> is going first!");
-    // await interaction.followUp(
-    //   Game.players
-    //     .map(
-    //       (player) =>
-    //         `${String(player.username)}: ${player.hand.map((card) => card.getName()).join(", ")}`,
-    //     )
-    //     .join("\n"),
-    // );
+    const minutes = interaction.options.getNumber("discussion_minutes");
+    // Seats are shuffled for a random turn order
+    Game.startGame(players, {
+      channel: sendableChannel(interaction.channel),
+      discussionMs: minutes ? minutes * 60_000 : undefined,
+    });
+
+    await interaction.deferReply();
+    const first = Game.currentPlayer();
+    await interaction.editReply(
+      await buildBoardMessage({
+        content:
+          `Game started! <@${first?.id}> is going first! ` +
+          "Everyone got two random castaways as their lives. Rename them (or add photos) any time with /castaways.",
+      }),
+    );
   },
 };

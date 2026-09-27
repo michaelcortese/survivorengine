@@ -1,16 +1,9 @@
-import {
-  SlashCommandBuilder,
-  ChatInputCommandInteraction,
-  MessageFlags,
-} from "discord.js";
+import { SlashCommandBuilder, ChatInputCommandInteraction } from "discord.js";
 import { Game, TribalCouncilState } from "../../game/game";
+import { CardName } from "../../game/cards";
+import { replyEphemeral } from "../../util/discord";
 
-const HAS_TARGET = true;
-const REQUIRED_CARD = "Tribal Advantage: Control the Vote";
-const INTERRUPTIBLE = false;
-const STOPPING_INTERACTION = false;
-const CAN_BE_PLAYED_TRIBAL_COUNCIL = true;
-const ONLY_DURING_TRIBAL_COUNCIL = true;
+const REQUIRED_CARD = CardName.ControlTheVote;
 
 export default {
   data: new SlashCommandBuilder()
@@ -23,43 +16,32 @@ export default {
         .setRequired(true),
     ),
   async execute(interaction: ChatInputCommandInteraction) {
-    const result = Game.checkForError(
-      interaction,
-      HAS_TARGET,
-      REQUIRED_CARD,
-      INTERRUPTIBLE,
-      STOPPING_INTERACTION,
-      CAN_BE_PLAYED_TRIBAL_COUNCIL,
-      ONLY_DURING_TRIBAL_COUNCIL,
-    );
+    const result = Game.validateAction(interaction, {
+      target: true,
+      requiredCard: REQUIRED_CARD,
+      tribalCouncil: [TribalCouncilState.Discussion, TribalCouncilState.Voting],
+      phaseError: "Voting is over, so Control the Vote can't be used now.",
+    });
     if ("error" in result) {
-      return interaction.reply({
-        content: result.error.content,
-        flags: MessageFlags.Ephemeral,
-      });
+      return replyEphemeral(interaction, result.error);
     }
     const { player, targetPlayer } = result;
     if (!targetPlayer) {
-      return interaction.reply({
-        content: "Target player not found.",
-        flags: MessageFlags.Ephemeral,
-      });
+      return replyEphemeral(interaction, "Target player not found.");
     }
 
-    // Check if target has votes to steal
+    // Check if target has votes to steal (before the card is used up)
     if (targetPlayer.votes === 0) {
-      return interaction.reply({
-        content: `<@${targetPlayer.id}> has no votes to steal.`,
-        flags: MessageFlags.Ephemeral,
-      });
+      return replyEphemeral(interaction, `<@${targetPlayer.id}> has no votes to steal.`);
     }
 
     // Steal the vote: decrement target's votes, increment player's votes
+    player.removeCard(REQUIRED_CARD);
     targetPlayer.votes -= 1;
     player.votes += 1;
 
     // Announce the vote steal publicly
-    await interaction.followUp({
+    await interaction.reply({
       content: `<@${player.id}> has stolen a vote from <@${targetPlayer.id}> using Tribal Advantage: Control the Vote! https://i.imgur.com/jNlZ87z.jpeg`,
     });
   },

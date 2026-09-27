@@ -4,13 +4,10 @@ import {
   MessageFlags,
 } from "discord.js";
 import { Game, TribalCouncilState } from "../../game/game";
+import { CardName } from "../../game/cards";
+import { replyEphemeral, sendDM } from "../../util/discord";
 
-const HAS_TARGET = true;
-const REQUIRED_CARD = "Tribal Advantage: Goodwill Gamble";
-const INTERRUPTIBLE = false;
-const STOPPING_INTERACTION = false;
-const CAN_BE_PLAYED_TRIBAL_COUNCIL = true;
-const ONLY_DURING_TRIBAL_COUNCIL = true;
+const REQUIRED_CARD = CardName.GoodwillGamble;
 
 export default {
   data: new SlashCommandBuilder()
@@ -23,47 +20,33 @@ export default {
         .setRequired(true),
     ),
   async execute(interaction: ChatInputCommandInteraction) {
-    const result = Game.checkForError(
-      interaction,
-      HAS_TARGET,
-      REQUIRED_CARD,
-      INTERRUPTIBLE,
-      STOPPING_INTERACTION,
-      CAN_BE_PLAYED_TRIBAL_COUNCIL,
-      ONLY_DURING_TRIBAL_COUNCIL,
-    );
+    const result = Game.validateAction(interaction, {
+      target: true,
+      requiredCard: REQUIRED_CARD,
+      tribalCouncil: [TribalCouncilState.Discussion, TribalCouncilState.Voting],
+      phaseError: "Voting is over, so Goodwill Gamble can't be used now.",
+    });
     if ("error" in result) {
-      return interaction.reply({
-        content: result.error.content,
-        flags: MessageFlags.Ephemeral,
-      });
+      return replyEphemeral(interaction, result.error);
     }
     const { player, targetPlayer } = result;
     if (!targetPlayer) {
-      return interaction.reply({
-        content: "Target player not found.",
-        flags: MessageFlags.Ephemeral,
-      });
+      return replyEphemeral(interaction, "Target player not found.");
     }
 
     // Increment the target player's votes
+    player.removeCard(REQUIRED_CARD);
     targetPlayer.votes += 1;
 
-    // Send DM to the target player
-    try {
-      const targetUser = await interaction.guild?.members.fetch(targetPlayer.id);
-      if (targetUser) {
-        await targetUser.send(
-          `You have received an extra vote from <@${player.id}> via Tribal Advantage: Goodwill Gamble! You now have ${targetPlayer.votes} vote(s) for this Tribal Council.`
-        );
-      }
-    } catch (error) {
-      console.error("Failed to send DM:", error);
-    }
-
+    // Reply first: Discord only waits 3 seconds for it
     await interaction.reply({
       content: `You have given an extra vote to <@${targetPlayer.id}> using Tribal Advantage: Goodwill Gamble.`,
       flags: MessageFlags.Ephemeral,
     });
+    await sendDM(
+      interaction.client,
+      targetPlayer.id,
+      `You have received an extra vote from <@${player.id}> via Tribal Advantage: Goodwill Gamble! You now have ${targetPlayer.votes} vote(s) for this Tribal Council.`,
+    );
   },
 };

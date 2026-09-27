@@ -1,4 +1,5 @@
-import Player from "./player";
+import type Player from "./player";
+
 class Card {
   public name: string;
   public description: string | null;

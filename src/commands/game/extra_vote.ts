@@ -1,17 +1,13 @@
-// TODO ensure that tribal council validation is working
 import {
   SlashCommandBuilder,
   ChatInputCommandInteraction,
   MessageFlags,
 } from "discord.js";
-import { Game } from "../../game/game";
+import { Game, TribalCouncilState } from "../../game/game";
+import { CardName } from "../../game/cards";
+import { replyEphemeral } from "../../util/discord";
 
-const HAS_TARGET = false;
-const REQUIRED_CARD = "Extra Vote";
-const INTERRUPTIBLE = false;
-const STOPPING_INTERACTION = false;
-const CAN_PLAY_DURING_TRIBAL_COUNCIL = true;
-const ONLY_DURING_TRIBAL_COUNCIL = true;
+const REQUIRED_CARD = CardName.ExtraVote;
 
 export default {
   data: new SlashCommandBuilder()
@@ -20,23 +16,16 @@ export default {
       "Play the Extra Vote card, giving you and extra vote in the upcoming Tribal Council.",
     ),
   async execute(interaction: ChatInputCommandInteraction) {
-    const result = Game.checkForError(
-      interaction,
-      HAS_TARGET,
-      REQUIRED_CARD,
-      INTERRUPTIBLE,
-      STOPPING_INTERACTION,
-      CAN_PLAY_DURING_TRIBAL_COUNCIL,
-      ONLY_DURING_TRIBAL_COUNCIL,
-    );
-
+    const result = Game.validateAction(interaction, {
+      requiredCard: REQUIRED_CARD,
+      tribalCouncil: [TribalCouncilState.Discussion, TribalCouncilState.Voting],
+      phaseError: "Voting is over, so an Extra Vote can't be used now.",
+    });
     if ("error" in result) {
-      return interaction.reply({
-        content: result.error.content,
-        flags: MessageFlags.Ephemeral,
-      });
+      return replyEphemeral(interaction, result.error);
     }
     const { player } = result;
+    player.removeCard(REQUIRED_CARD);
     player.votes++;
     await interaction.reply({
       content: `You played an **Extra Vote** and gave yourself an extra vote in the upcoming Tribal Council! You currently have ${player.votes} votes.`,

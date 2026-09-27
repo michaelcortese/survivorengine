@@ -9,73 +9,44 @@ import {
   ComponentType,
 } from "discord.js";
 import { Game } from "../../game/game";
-
-const HAS_TARGET = false;
-const REQUIRED_CARD = null;
-const INTERRUPTIBLE = false;
-const STOPPING_INTERACTION = false;
+import { GameConfig } from "../../game/config";
+import { handSelectOptions, replyEphemeral } from "../../util/discord";
 
 export default {
   data: new SlashCommandBuilder()
     .setName("discard")
     .setDescription("Discard a card from your hand"),
   async execute(interaction: ChatInputCommandInteraction) {
-    const result = Game.checkForError(
-      interaction,
-      HAS_TARGET,
-      REQUIRED_CARD,
-      INTERRUPTIBLE,
-      STOPPING_INTERACTION,
-    );
-
+    const result = Game.validateAction(interaction);
     if ("error" in result) {
-      return interaction.reply({
-        content: result.error.content,
-        flags: MessageFlags.Ephemeral,
-      });
+      return replyEphemeral(interaction, result.error);
     }
     const { player } = result;
 
     if (player.hand.length === 0) {
-      return interaction.reply({
-        content: "You have no cards to discard!",
-        flags: MessageFlags.Ephemeral,
-      });
+      return replyEphemeral(interaction, "You have no cards to discard!");
     }
 
     // Create dropdown with player's cards
     const selectMenu = new StringSelectMenuBuilder()
       .setCustomId("discard_select")
       .setPlaceholder("Choose a card to discard")
-      .addOptions(
-        player.hand.map((card, index) => ({
-          label: card.getName(),
-          description: card.compactDescription || "No description",
-          value: index.toString(),
-        })),
-      );
+      .addOptions(handSelectOptions(player.hand));
 
-    // Create confirm button
     const confirmButton = new ButtonBuilder()
       .setCustomId("discard_confirm")
       .setLabel("Discard Publicly")
       .setStyle(ButtonStyle.Danger)
       .setDisabled(true); // Disabled until a card is selected
 
-    // Create private discard button
     const privateButton = new ButtonBuilder()
       .setCustomId("discard_private")
       .setLabel("Discard Privately")
       .setStyle(ButtonStyle.Secondary)
       .setDisabled(true); // Disabled until a card is selected
 
-    const row1 = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
-      selectMenu,
-    );
-    const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      confirmButton,
-      privateButton,
-    );
+    const row1 = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(selectMenu);
+    const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(confirmButton, privateButton);
 
     const response = await interaction.reply({
       content: "Select a card to discard:",
@@ -83,66 +54,50 @@ export default {
       flags: MessageFlags.Ephemeral,
     });
 
-    let selectedCardIndex: number | null = null;
+    let selectedCardName: string | null = null;
+    let done = false;
 
-    // Handle interactions
     const collector = response.createMessageComponentCollector({
       componentType: ComponentType.StringSelect,
-      time: 60000, // 1 minute timeout
+      time: GameConfig.timings.menuMs,
     });
-
     const buttonCollector = response.createMessageComponentCollector({
       componentType: ComponentType.Button,
-      time: 60000,
+      time: GameConfig.timings.menuMs,
     });
 
     collector.on("collect", async (selectInteraction) => {
-      if (selectInteraction.user.id !== interaction.user.id) {
-        return selectInteraction.reply({
-          content: "This is not your discard menu!",
-          flags: MessageFlags.Ephemeral,
-        });
-      }
-
-      selectedCardIndex = parseInt(selectInteraction.values[0]);
-      const selectedCard = player.hand[selectedCardIndex];
-
-      // Enable the confirm button
-      const updatedConfirmButton =
-        ButtonBuilder.from(confirmButton).setDisabled(false);
-      const updatedPrivateButton =
-        ButtonBuilder.from(privateButton).setDisabled(false);
+      selectedCardName = selectInteraction.values[0];
       const updatedRow2 = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        updatedConfirmButton,
-        updatedPrivateButton,
+        ButtonBuilder.from(confirmButton).setDisabled(false),
+        ButtonBuilder.from(privateButton).setDisabled(false),
       );
-
       await selectInteraction.update({
-        content: `Selected: **${selectedCard.getName()}**\nClick "Discard Publicly" or "Discard Privately".`,
+        content: `Selected: **${selectedCardName}**\nClick "Discard Publicly" or "Discard Privately".`,
         components: [row1, updatedRow2],
       });
     });
 
     buttonCollector.on("collect", async (buttonInteraction) => {
-      if (buttonInteraction.user.id !== interaction.user.id) {
-        return buttonInteraction.reply({
-          content: "This is not your discard menu!",
-          flags: MessageFlags.Ephemeral,
-        });
-      }
-
-      if (selectedCardIndex === null) {
+      if (selectedCardName === null) {
         return buttonInteraction.reply({
           content: "Please select a card first!",
           flags: MessageFlags.Ephemeral,
         });
       }
 
-      const cardToDiscard = player.hand[selectedCardIndex];
-      player.hand.splice(selectedCardIndex, 1);
+      const cardToDiscard = player.removeCard(selectedCardName);
+      if (!cardToDiscard) {
+        return buttonInteraction.reply({
+          content: `You don't have **${selectedCardName}** anymore.`,
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+      done = true;
+      collector.stop("done");
+      buttonCollector.stop("done");
 
       const isPrivate = buttonInteraction.customId === "discard_private";
-
       await buttonInteraction.update({
         content: `You discarded **${cardToDiscard.getName()}**${isPrivate ? " privately" : ""}.`,
         components: [],
@@ -158,11 +113,10 @@ export default {
 
     // Handle timeout
     collector.on("end", async () => {
-      if (selectedCardIndex === null) {
-        await interaction.editReply({
-          content: "Discard menu timed out.",
-          components: [],
-        });
+      if (!done) {
+        await interaction
+          .editReply({ content: "Discard menu timed out.", components: [] })
+          .catch(() => undefined);
       }
     });
   },

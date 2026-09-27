@@ -1,4 +1,5 @@
 import {
+  AutocompleteInteraction,
   SlashCommandBuilder,
   ChatInputCommandInteraction,
   EmbedBuilder,
@@ -44,8 +45,17 @@ export default {
       opt
         .setName("name")
         .setDescription("Full or partial card name (case insensitive)")
-        .setRequired(true),
+        .setRequired(true)
+        .setAutocomplete(true),
     ),
+  async autocomplete(interaction: AutocompleteInteraction) {
+    const typed = interaction.options.getFocused().toLowerCase();
+    const matches = (cards as CardData[])
+      .map((card) => card.name)
+      .filter((name) => name.toLowerCase().includes(typed))
+      .slice(0, 25);
+    await interaction.respond(matches.map((name) => ({ name, value: name })));
+  },
   async execute(interaction: ChatInputCommandInteraction) {
     const query = interaction.options.getString("name", true);
 

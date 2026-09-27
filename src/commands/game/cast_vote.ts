@@ -1,59 +1,62 @@
-import { TribalCouncil } from "../../game/tribal_council";
 import {
   SlashCommandBuilder,
   ChatInputCommandInteraction,
   MessageFlags,
 } from "discord.js";
 import { Game, TribalCouncilState } from "../../game/game";
-const HAS_TARGET = true;
-const REQUIRED_CARD = null;
-const INTERRUPTIBLE = false;
-const STOPPING_INTERACTION = false;
-const CAN_BE_PLAYED_TRIBAL_COUNCIL = true;
+import { replyEphemeral } from "../../util/discord";
+
+/** Jury vote at the Final Tribal Council. */
+async function castJuryVote(interaction: ChatInputCommandInteraction) {
+  const council = Game.finalTribalCouncil;
+  const juror = Game.getPlayerFromUserId(interaction.user.id);
+  const finalist = Game.getPlayerFromUserId(interaction.options.getUser("player", true).id);
+  if (!council || !juror) {
+    return replyEphemeral(interaction, "You are not on the jury.");
+  }
+  if (!finalist) {
+    return replyEphemeral(interaction, "The specified player is not in the game!");
+  }
+  const error = council.recordVote(juror, finalist);
+  if (error) {
+    return replyEphemeral(interaction, error);
+  }
+  await interaction.reply({
+    content: `Your vote for <@${finalist.id}> is locked in. 🔒`,
+    flags: MessageFlags.Ephemeral,
+  });
+  await council.afterVote();
+}
 
 export default {
   data: new SlashCommandBuilder()
     .setName("cast_vote")
-    .setDescription("TRIBAL COUNCIL ONLY: Cast a vote for another player")
+    .setDescription("TRIBAL COUNCIL ONLY: vote a player out (or, on the jury, vote for the winner)")
     .addUserOption((option) =>
       option
         .setName("player")
-        .setDescription("The player cast your vote against")
+        .setDescription("The player to vote for")
         .setRequired(true),
     ),
   async execute(interaction: ChatInputCommandInteraction) {
-    const result = Game.checkForError(
-      interaction,
-      HAS_TARGET,
-      REQUIRED_CARD,
-      INTERRUPTIBLE,
-      STOPPING_INTERACTION,
-      CAN_BE_PLAYED_TRIBAL_COUNCIL,
-    );
+    if (Game.active && Game.tribalCouncilState === TribalCouncilState.FINAL) {
+      return castJuryVote(interaction);
+    }
+
+    const result = Game.validateAction(interaction, {
+      target: true,
+      tribalCouncil: [TribalCouncilState.Voting],
+      phaseError: "Unable to place vote. Tribal Council is not in voting state.",
+    });
     if ("error" in result) {
-      return interaction.reply({
-        content: result.error.content,
-        flags: MessageFlags.Ephemeral,
-      });
+      return replyEphemeral(interaction, result.error);
     }
     const { player, targetPlayer } = result;
     if (!targetPlayer) {
-      return interaction.reply({
-        content: "Unable to place vote. Target player not found.",
-        flags: MessageFlags.Ephemeral,
-      });
+      return replyEphemeral(interaction, "Unable to place vote. Target player not found.");
     }
     if (player.votes === 0) {
-      return interaction.reply({
-        content: "Unable to place vote. You have no votes remaining.",
-        flags: MessageFlags.Ephemeral,
-      });
-    }
-    if (Game.tribalCouncilState !== TribalCouncilState.Voting) {
-      return interaction.reply({
-        content: "Unable to place vote. Tribal Council is not in voting state.",
-        flags: MessageFlags.Ephemeral,
-      });
+      return replyEphemeral(interaction, "Unable to place vote. You have no votes remaining.");
     }
     player.votes -= 1;
     Game.tribalCouncil?.castVote(targetPlayer);

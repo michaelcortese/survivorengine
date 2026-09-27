@@ -1,25 +1,44 @@
-import Card from "./card";
+import type Card from "./card";
+import { Castaway } from "./castaways";
+import { GameConfig } from "./config";
 
 class Player {
   public id: string;
   public username: string;
   public hand: Card[];
-  public lives: number;
   public votes: number;
-  public isActive: boolean;
   public campRaid?: Player;
+  /** The player's Survivor Character Cards. Each vote-out turns one over. */
+  public castaways: Castaway[];
+  /** Tribe color shown on the board. */
+  public color: string;
+  /** Discord avatar URL; downloaded lazily when the board is drawn. */
+  public avatarUrl?: string;
+  /** Cached avatar bytes: undefined = not fetched yet, null = unavailable. */
+  public avatar?: Buffer | null;
 
-  constructor(id: string, username: string) {
+  constructor(
+    id: string,
+    username: string,
+    castawayNames: (string | undefined)[] = [],
+  ) {
     this.id = id; // The ID of the user
-    this.username = username; // The username of the player, can be set later
-    //this.gameId = gameId; // The ID of the game this player is in
+    this.username = username;
     this.hand = []; // The player's hand of cards
-    this.lives = 2;
-    this.votes = 0; // The number of votes the player has
-    this.isActive = true; // Whether the player is currently active in the game
+    this.votes = 0; // The number of votes the player has at the current Tribal Council
+    this.color = "#888888";
+    this.castaways = Array.from({ length: GameConfig.livesPerPlayer }, (_, i) => ({
+      name: castawayNames[i] ?? `Castaway ${i + 1}`,
+      lost: false,
+      chosen: castawayNames[i] !== undefined,
+    }));
   }
 
-  // Method to set the username of the player
+  /** Castaways still in the game. */
+  get lives(): number {
+    return this.castaways.filter((castaway) => !castaway.lost).length;
+  }
+
   setUsername(username: string): void {
     this.username = username;
   }
@@ -28,17 +47,36 @@ class Player {
     return this.hand.some((card) => card.getName() === cardName);
   }
 
-  removeCard(cardName: string): void {
+  /** Case-insensitive lookup, for card names typed by players. */
+  findCard(cardName: string): Card | undefined {
+    const wanted = cardName.trim().toLowerCase();
+    return this.hand.find((card) => card.getName().toLowerCase() === wanted);
+  }
+
+  /** Removes one copy of the card and returns it, if the player has it. */
+  removeCard(cardName: string): Card | undefined {
     const cardIndex = this.hand.findIndex(
       (card) => card.getName() === cardName,
     );
-    if (cardIndex !== -1) {
-      this.hand.splice(cardIndex, 1);
-    }
+    if (cardIndex === -1) return undefined;
+    return this.hand.splice(cardIndex, 1)[0];
   }
 
   isAlive(): boolean {
     return this.lives > 0;
+  }
+
+  /**
+   * Turns over the next castaway still in the game (castaway #1 goes first)
+   * and returns it.
+   */
+  loseLife(tribalNumber?: number): Castaway | undefined {
+    const castaway = this.castaways.find((c) => !c.lost);
+    if (castaway) {
+      castaway.lost = true;
+      castaway.lostAtTribal = tribalNumber;
+    }
+    return castaway;
   }
 }
 

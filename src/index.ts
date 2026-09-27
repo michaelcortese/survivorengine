@@ -24,6 +24,14 @@ const client = new Client({ intents: [GatewayIntentBits.Guilds] }) as CustomClie
 
 client.commands = new Collection();
 
+// Keep the bot (and the game in memory) alive if a background task fails.
+process.on('unhandledRejection', (reason) => {
+    console.error('Unhandled promise rejection:', reason);
+});
+client.on(Events.Error, (error) => {
+    console.error('Discord client error:', error);
+});
+
 async function loadCommands() {
     const foldersPath = path.join(__dirname, 'commands');
     const commandFolders = fs.readdirSync(foldersPath);

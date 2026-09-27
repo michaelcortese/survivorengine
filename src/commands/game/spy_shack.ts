@@ -9,11 +9,16 @@ import {
   ComponentType,
 } from "discord.js";
 import { Game } from "../../game/game";
+import { CardName } from "../../game/cards";
+import { GameConfig } from "../../game/config";
+import {
+  handSelectOptions,
+  replyEphemeral,
+  runSorryForYouWindow,
+  sendDM,
+} from "../../util/discord";
 
-const HAS_TARGET = true;
-const REQUIRED_CARD = "The Spy Shack";
-const INTERRUPTIBLE = true;
-const STOPPING_INTERACTION = false;
+const REQUIRED_CARD = CardName.SpyShack;
 
 export default {
   data: new SlashCommandBuilder()
@@ -26,68 +31,60 @@ export default {
         .setRequired(true),
     ),
   execute: async (interaction: ChatInputCommandInteraction) => {
-    const result = Game.checkForError(
-      interaction,
-      HAS_TARGET,
-      REQUIRED_CARD,
-      INTERRUPTIBLE,
-      STOPPING_INTERACTION,
-    );
+    const result = Game.validateAction(interaction, {
+      target: true,
+      requiredCard: REQUIRED_CARD,
+      interruptible: true,
+    });
     if ("error" in result) {
-      return interaction.reply({
-        content: result.error.content,
-        flags: MessageFlags.Ephemeral,
-      });
+      return replyEphemeral(interaction, result.error);
     }
     const { player, targetPlayer } = result;
     if (!targetPlayer) {
-      return interaction.reply({
-        content: "You must specify a player to spy on.",
-        flags: MessageFlags.Ephemeral,
-      });
+      return replyEphemeral(interaction, "You must specify a player to spy on.");
     }
     if (targetPlayer.hand.length === 0) {
-      //TODO give the card back to the player
-      return interaction.reply({
-        content: `<@${targetPlayer.id}> has no cards to spy on!`,
+      // Checked before the card is played, so you keep your Spy Shack
+      return replyEphemeral(interaction, `<@${targetPlayer.id}> has no cards to spy on!`);
+    }
+
+    // The card is played now, whether or not the spying gets blocked
+    const played = player.removeCard(REQUIRED_CARD)!;
+    let window;
+    try {
+      window = await runSorryForYouWindow(
+        interaction,
+        player,
+        targetPlayer,
+        (seconds) =>
+          `<@${player.id}> is attempting to spy on <@${targetPlayer.id}>... (They have ~${seconds} seconds remaining to play "Sorry For You")`,
+      );
+    } catch (error) {
+      player.hand.push(played); // Discord failed: give the card back
+      throw error;
+    }
+    if (!window) {
+      player.hand.push(played);
+      return replyEphemeral(
+        interaction,
+        "This action cannot be played at this time. Wait a moment and try again.",
+      );
+    }
+
+    if (window.outcome === "stopped") {
+      await interaction.editReply({
+        content: `Spy attempt was interrupted with ${window.secondsLeft} seconds remaining`,
+      });
+      return interaction.followUp({
+        content: "Your spy attempt was interrupted!",
         flags: MessageFlags.Ephemeral,
       });
     }
-    // Respond immediately to Discord (public message)
-    let msg = await interaction.reply({
-      content: `<@${player.id}> is attempting to spy on <@${targetPlayer.id}>... (They have ~15 seconds remaining to play "Sorry For You")`,
-    });
-    Game.startCooldown(player, targetPlayer);
-    // Wait for interruption or timeout
-    const startTime = Date.now();
-    let lastDisplayedSecond = 15;
-    const countdownDuration = lastDisplayedSecond * 1000; // 15 seconds in milliseconds
-    while (Game.interruption.active) {
-      if (Game.interruption.stopped) {
-        await interaction.editReply({
-          content: `Spy attempt was interrupted with ${lastDisplayedSecond} seconds remaining`,
-        });
-        return interaction.followUp({
-          content: "Your spy attempt was interrupted!",
-          flags: MessageFlags.Ephemeral,
-        });
-      }
 
-      const elapsed = Date.now() - startTime;
-      const remaining = Math.max(
-        0,
-        Math.ceil((countdownDuration - elapsed) / 1000),
-      );
-
-      // Only update the message when the second actually changes
-      if (remaining !== lastDisplayedSecond) {
-        lastDisplayedSecond = remaining;
-        await interaction.editReply({
-          content: `<@${player.id}> is attempting to spy on <@${targetPlayer.id}>... (They have ~${remaining} seconds remaining to play "Sorry For You")`,
-        });
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, 100)); // Check more frequently but update less
+    if (targetPlayer.hand.length === 0) {
+      return interaction.editReply({
+        content: `<@${player.id}> spied on <@${targetPlayer.id}>, but their hand was empty.`,
+      });
     }
 
     await interaction.editReply({
@@ -98,34 +95,21 @@ export default {
     const selectMenu = new StringSelectMenuBuilder()
       .setCustomId("spy_select")
       .setPlaceholder("Choose a card to take")
-      .addOptions(
-        targetPlayer.hand.map((card, index) => ({
-          label: card.getName(),
-          description: card.compactDescription || "No description",
-          value: index.toString(),
-        })),
-      );
+      .addOptions(handSelectOptions(targetPlayer.hand));
 
-    // Create take button
     const takeButton = new ButtonBuilder()
       .setCustomId("spy_take")
       .setLabel("Take Card")
       .setStyle(ButtonStyle.Primary)
       .setDisabled(true); // Disabled until a card is selected
 
-    // Create cancel button
     const cancelButton = new ButtonBuilder()
       .setCustomId("spy_cancel")
       .setLabel("Cancel")
       .setStyle(ButtonStyle.Secondary);
 
-    const row1 = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
-      selectMenu,
-    );
-    const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      takeButton,
-      cancelButton,
-    );
+    const row1 = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(selectMenu);
+    const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(takeButton, cancelButton);
 
     const spyResponse = await interaction.followUp({
       content: `Select a card to take from <@${targetPlayer.id}>'s hand:`,
@@ -133,17 +117,16 @@ export default {
       flags: MessageFlags.Ephemeral,
     });
 
-    let selectedCardIndex: number | null = null;
+    let selectedCardName: string | null = null;
+    let done = false;
 
-    // Handle interactions
     const collector = spyResponse.createMessageComponentCollector({
       componentType: ComponentType.StringSelect,
-      time: 60000, // 1 minute timeout
+      time: GameConfig.timings.menuMs,
     });
-
     const buttonCollector = spyResponse.createMessageComponentCollector({
       componentType: ComponentType.Button,
-      time: 60000,
+      time: GameConfig.timings.menuMs,
     });
 
     collector.on("collect", async (selectInteraction) => {
@@ -153,20 +136,13 @@ export default {
           flags: MessageFlags.Ephemeral,
         });
       }
-
-      selectedCardIndex = parseInt(selectInteraction.values[0]);
-      const selectedCard = targetPlayer.hand[selectedCardIndex];
-
-      // Enable the take button
-      const updatedTakeButton =
-        ButtonBuilder.from(takeButton).setDisabled(false);
+      selectedCardName = selectInteraction.values[0];
       const updatedRow2 = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        updatedTakeButton,
+        ButtonBuilder.from(takeButton).setDisabled(false),
         cancelButton,
       );
-
       await selectInteraction.update({
-        content: `Selected: **${selectedCard.getName()}**\nClick "Take Card" to take this card or "Cancel" to leave empty-handed.`,
+        content: `Selected: **${selectedCardName}**\nClick "Take Card" to take this card or "Cancel" to leave empty-handed.`,
         components: [row1, updatedRow2],
       });
     });
@@ -180,48 +156,47 @@ export default {
       }
 
       if (buttonInteraction.customId === "spy_cancel") {
+        done = true;
+        collector.stop("done");
+        buttonCollector.stop("done");
         await buttonInteraction.update({
           content: `You chose not to take any cards from <@${targetPlayer.id}>.`,
           components: [],
         });
-
         await interaction.editReply({
           content: `<@${player.id}> spied on <@${targetPlayer.id}> but took nothing.`,
         });
-
-        // TODO give the card back to the player
         return;
       }
 
-      if (selectedCardIndex === null) {
+      if (selectedCardName === null) {
         return buttonInteraction.reply({
           content: "Please select a card first!",
           flags: MessageFlags.Ephemeral,
         });
       }
 
-      const cardToTake = targetPlayer.hand[selectedCardIndex];
-      targetPlayer.hand.splice(selectedCardIndex, 1);
+      const cardToTake = targetPlayer.removeCard(selectedCardName);
+      if (!cardToTake) {
+        return buttonInteraction.reply({
+          content: `<@${targetPlayer.id}> doesn't have **${selectedCardName}** anymore. Pick another card.`,
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+      done = true;
+      collector.stop("done");
+      buttonCollector.stop("done");
       player.hand.push(cardToTake);
 
       await buttonInteraction.update({
         content: `You took **${cardToTake.getName()}** from <@${targetPlayer.id}>.`,
         components: [],
       });
-
-      // Send DM to target player about losing the card
-      try {
-        const targetUser = await interaction.client.users.fetch(
-          targetPlayer.id,
-        );
-        await targetUser.send(
-          `<@${player.id}> spied on your hand and took **${cardToTake.getName()}** in the Survivor game!`,
-        );
-      } catch (error) {
-        console.log(`Could not send DM to <@${targetPlayer.id}>:`, error);
-      }
-
-      // Update public message
+      await sendDM(
+        interaction.client,
+        targetPlayer.id,
+        `<@${player.id}> spied on your hand and took **${cardToTake.getName()}** in the Survivor game!`,
+      );
       await interaction.editReply({
         content: `<@${player.id}> spied on <@${targetPlayer.id}> and took a card.`,
       });
@@ -229,10 +204,10 @@ export default {
 
     // Handle timeout
     collector.on("end", async () => {
-      if (selectedCardIndex === null) {
-        await interaction.editReply({
-          content: `<@${player.id}>'s spy attempt timed out.`,
-        });
+      if (!done) {
+        await interaction
+          .editReply({ content: `<@${player.id}>'s spy attempt timed out.` })
+          .catch(() => undefined);
       }
     });
   },

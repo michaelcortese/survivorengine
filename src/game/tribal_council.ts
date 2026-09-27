@@ -1,171 +1,285 @@
+import {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  ChatInputCommandInteraction,
+  ComponentType,
+  MessageFlags,
+} from "discord.js";
 import { Game, TribalCouncilState } from "./game";
-import Player from "./player";
-import { ChatInputCommandInteraction } from "discord.js";
-// import { cards } from "./cardlist.json";
+import type Player from "./player";
+import { GameConfig, formatDuration } from "./config";
+import { buildBoardMessage } from "./board";
+import { startFinalTribalCouncil } from "./final_tribal_council";
+import { Announcer, createAnnouncer, mention, sendDM } from "../util/discord";
 
 enum TribalCouncilType {
   SINGLE,
   DOUBLE,
-  FINAL,
 }
 
-let singleImage = "https://imgur.com/MPRxVdV";
-let doubleImage = "https://i.imgur.com/jdv8TpI.png";
+const singleImage = "https://imgur.com/MPRxVdV";
+const doubleImage = "https://i.imgur.com/jdv8TpI.png";
+const snuffedGif = "https://tenor.com/bExpm.gif";
+
+interface IdolProtection {
+  protectedPlayer: Player;
+  playedBy: Player;
+}
+
+interface IdolNullification {
+  nullifiedBy: Player;
+  targetPlayer: Player;
+  originalIdolPlayer: Player;
+  originalProtectedPlayer: Player;
+}
+
+/** What the vote decided. */
+type VoteResult =
+  | { kind: "out"; players: Player[] }
+  | {
+      kind: "tie";
+      tied: Player[];
+      /** How many of the tied players the leader must vote out. */
+      picks: number;
+      /** Already voted out before the tie (double elimination, tie for 2nd). */
+      alreadyOut?: Player[];
+      intro?: string;
+    };
+
+interface PendingTie {
+  tied: Player[];
+  picks: number;
+}
+
+function shuffled<T>(items: T[]): T[] {
+  const copy = [...items];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
 
 class TribalCouncil {
   interaction: ChatInputCommandInteraction;
   tribalCouncilType: TribalCouncilType;
-  votesArray: Player[];
-  tiedPlayers: Player[];
+  /** Which Tribal Council of the game this is (1-based). */
+  readonly number: number;
+  readonly gameId: number;
+  /** The player who drew the card. Play continues after them. */
+  readonly drawer: Player | undefined;
   leader: Player | undefined;
-  idolProtections: { protectedPlayer: Player; playedBy: Player }[];
-  idolNullifications: {
-    nullifiedBy: Player;
-    targetPlayer: Player;
-    originalIdolPlayer: Player;
-    originalProtectedPlayer: Player;
-  }[];
+  /** Set by I'm the Leader Now: the new leader takes the next turn. */
+  leaderChangedByCard = false;
+  votesArray: Player[] = [];
+  tiedPlayers: Player[] = [];
+  pendingTie: PendingTie | null = null;
+  idolProtections: IdolProtection[] = [];
+  idolNullifications: IdolNullification[] = [];
+  private readonly drawnType: TribalCouncilType;
+  private readonly say: Announcer;
+  private readonly timers = new Set<NodeJS.Timeout>();
+  /** Players eliminated at this council; their hands are settled at the end. */
+  private readonly eliminated: Player[] = [];
+  private finished = false;
+  private disposed = false;
 
   constructor(
     interaction: ChatInputCommandInteraction,
     tribalCouncilType: TribalCouncilType,
+    drawer?: Player,
   ) {
     this.interaction = interaction;
-    this.tribalCouncilType = tribalCouncilType;
-    this.votesArray = [];
-    this.tiedPlayers = [];
-    this.leader =
-      Game.tribalCouncilLeader || Game.getPlayerFromUserId(interaction.user.id);
-    this.idolProtections = [];
-    this.idolNullifications = [];
+    this.gameId = Game.id;
+    this.number = ++Game.tribalCouncilCount;
+    this.drawer = drawer ?? Game.getPlayerFromUserId(interaction.user.id);
+    this.leader = this.drawer;
+    this.drawnType = tribalCouncilType;
+    // Voting out two when only three remain could leave a single survivor.
+    this.tribalCouncilType =
+      tribalCouncilType === TribalCouncilType.DOUBLE &&
+      Game.getAlivePlayers().length <= 3
+        ? TribalCouncilType.SINGLE
+        : tribalCouncilType;
+    this.say = createAnnouncer(interaction);
   }
 
   async init() {
-    for (const player of Game.players) {
-      //ONE VOTE PER PLAYER (excluding extras)
-      if (player.isAlive()) player.votes += 1;
-    }
-    await this.interaction.deferReply();
-    await this.interaction.editReply({
-      content: `<@${this.leader?.id}> has drawn the Tribal Council card! Tribal council will begin with <@${this.leader?.id}> as the leader unless otherwise changed. ${this.tribalCouncilType === TribalCouncilType.SINGLE ? singleImage : doubleImage}`,
-    });
-    await this.interaction.followUp({
-      content: `Welcome to Tribal Council. Tonight, one of you will be voted out of the tribe. <@${this.leader?.id}> is your tribal council leader for tonight's vote. You have 8 minutes (30 seconds for testing) to discuss your vote before we get to the voting.`,
-    });
-    // wait for 30 seconds
-    await new Promise((resolve) => setTimeout(resolve, 30 * 1000));
-    Game.tribalCouncilState = TribalCouncilState.Voting;
-    await this.interaction.followUp({
-      content: "It is time to vote. You have 60 seconds to cast your vote.",
-    });
-    await new Promise((resolve) => setTimeout(resolve, 60 * 1000));
-
-    // Wait for potential idol plays before reading votes
-    await this.waitForIdol();
-
-    const result = await this.readVotes();
-    if (!result.tie) {
-      if (result.players && result.players.length > 0) {
-        // Handle elimination(s)
-        for (const player of result.players) {
-          player.lives--;
-          await this.interaction.followUp({
-            content: `<@${player.id}> has been voted out, they have ${player.lives} lives left.`,
-          });
-          if (!player.isAlive()) {
-            await this.interaction.followUp({
-              content: `<@${player.id}> has been ELIMINATED and their torch has been snuffed. https://tenor.com/bExpm.gif`,
-            });
-            // Check if only 2 players remain alive
-            const alivePlayers = Game.getAlivePlayers();
-            if (alivePlayers.length === 2) {
-              Game.finalTribalLeader = player;
-              await this.interaction.followUp({
-                content: `STOP PLAYING AND RUN THIS! <@${player.id}> is the Final Tribal Council Leader. Please run /final_tribal_council to begin the final vote.`,
-              });
-            }
-          }
-        }
-        this.cleanup();
-      }
-      // Note: if players is empty (all votes cancelled), cleanup was already called in readVotes
-    } else {
-      // Handle tie case - store tied players for leader decision
-      this.tiedPlayers = result.players || [];
-      let tieMessage = "";
-
-      if (this.tribalCouncilType === TribalCouncilType.SINGLE) {
-        tieMessage =
-          `The vote was a tie between ${this.tiedPlayers.map((p) => `<@${p.id}>`).join(", ")}!\n` +
-          `As the tribal council leader, <@${this.leader?.id}> must break the tie.\n` +
-          `<@${this.leader?.id}>, use "/break_tie @player" to select the player to eliminate.`;
-      } else if (this.tribalCouncilType === TribalCouncilType.DOUBLE) {
-        if (this.tiedPlayers.length >= 3) {
-          tieMessage =
-            `The vote was a tie between ${this.tiedPlayers.map((p) => `<@${p.id}>`).join(", ")}!\n` +
-            `As the tribal council leader, <@${this.leader?.id}> must break the tie.\n` +
-            `<@${this.leader?.id}>, use "/break_tie @player @player2" to select the 2 players to eliminate.`;
-        } else {
-          // This shouldn't happen in double elim readVotes, but handle gracefully
-          tieMessage = `Unexpected tie scenario in double elimination. Leader must decide.`;
-        }
-      }
-
-      await this.interaction.followUp({ content: tieMessage });
+    try {
+      await this.run();
+    } catch (error) {
+      console.error(`Tribal Council #${this.number} failed:`, error);
+      if (this.isStale()) return;
+      this.pendingTie = null;
+      await this.say(
+        "Something went wrong at Tribal Council, so it has been called off. Play continues.",
+      );
+      await this.finish(false);
     }
   }
 
-  async initFinal() {
-    await this.interaction.followUp({
-      content: `
-        The final tribal council has begun! The leader is <@${this.leader?.id}>.\n
-        Jury members, use "/final_vote @player" to cast your vote.
-      `,
+  private async run() {
+    for (const player of Game.getAlivePlayers()) {
+      // ONE VOTE PER PLAYER (excluding extras)
+      player.votes += 1;
+    }
+    Game.tribalCouncilState = TribalCouncilState.Discussion;
+    const isDouble = this.drawnType === TribalCouncilType.DOUBLE;
+    await this.interaction.deferReply();
+    await this.interaction.editReply({
+      content: `<@${this.leader?.id}> has drawn the ${isDouble ? "**Double** " : ""}Tribal Council card! Tribal council will begin with <@${this.leader?.id}> as the leader unless otherwise changed. ${isDouble ? doubleImage : singleImage}`,
     });
-    this.tribalCouncilType = TribalCouncilType.FINAL;
+    if (this.tribalCouncilType !== this.drawnType) {
+      await this.say(
+        "Only three players remain, so this double Tribal Council will vote out just one castaway.",
+      );
+    }
+
+    await this.discuss();
+    if (this.isStale()) return;
+
+    Game.tribalCouncilState = TribalCouncilState.Voting;
+    await this.say(
+      `It is time to vote. You have ${formatDuration(GameConfig.timings.votingMs)} to cast your vote with /cast_vote.`,
+    );
+    await this.sleep(GameConfig.timings.votingMs);
+    if (this.isStale()) return;
+
+    // Wait for potential idol plays before reading votes
+    await this.waitForIdol();
+    if (this.isStale()) return;
+
+    const result = await this.readVotes();
+    if (this.isStale()) return;
+    await this.resolve(result);
+  }
+
+  /** Discussion phase. The leader can press a button to start the vote early. */
+  private async discuss() {
+    const durationMs = Game.discussionMs;
+    const tonight =
+      this.tribalCouncilType === TribalCouncilType.DOUBLE ? "two of you" : "one of you";
+    const intro = `Welcome to Tribal Council. Tonight, ${tonight} will be voted out of the tribe. <@${this.leader?.id}> is your tribal council leader for tonight's vote. You have ${formatDuration(durationMs)} to discuss your vote before we get to the voting.`;
+    if (durationMs <= 0) {
+      await this.say(intro);
+      return;
+    }
+
+    const button = new ButtonBuilder()
+      .setCustomId(`tribal:${this.gameId}:${this.number}:start_vote`)
+      .setLabel("Start the vote")
+      .setEmoji("🗳️")
+      .setStyle(ButtonStyle.Primary);
+    const message = await this.say({
+      content: `${intro} The leader can start the vote early.`,
+      components: [new ActionRowBuilder<ButtonBuilder>().addComponents(button)],
+    });
+    if (!message) {
+      await this.sleep(durationMs);
+      return;
+    }
+
+    await new Promise<void>((resolve) => {
+      const collector = message.createMessageComponentCollector({
+        componentType: ComponentType.Button,
+        time: durationMs,
+      });
+      collector.on("collect", async (click) => {
+        if (click.user.id !== this.leader?.id) {
+          await click
+            .reply({
+              content: "Only the Tribal Council leader can start the vote.",
+              flags: MessageFlags.Ephemeral,
+            })
+            .catch(() => undefined);
+          return;
+        }
+        collector.stop("leader");
+        await click.update({ components: [] }).catch(() => undefined);
+      });
+      collector.on("end", (_collected, reason) => {
+        if (reason !== "leader") {
+          message.edit({ components: [] }).catch(() => undefined);
+        }
+        resolve();
+      });
+    });
   }
 
   castVote(player: Player) {
     this.votesArray.push(player);
   }
 
-  async readVotes() {
+  private activeProtections(): IdolProtection[] {
+    return this.idolProtections.filter(
+      (protection) =>
+        !this.idolNullifications.some(
+          (nullification) =>
+            nullification.originalIdolPlayer === protection.playedBy &&
+            nullification.originalProtectedPlayer === protection.protectedPlayer,
+        ),
+    );
+  }
+
+  async readVotes(): Promise<VoteResult> {
     // First, handle idol protection by filtering out votes
     let effectiveVotes = [...this.votesArray];
-
-    // Get active idol protections (those not nullified)
-    const activeProtections = this.idolProtections.filter((protection) => {
-      return !this.idolNullifications.some(
-        (nullification) =>
-          nullification.originalIdolPlayer === protection.playedBy &&
-          nullification.originalProtectedPlayer === protection.protectedPlayer,
-      );
-    });
+    const activeProtections = this.activeProtections();
 
     // Remove votes for all actively protected players
     for (const protection of activeProtections) {
       const protectedPlayer = protection.protectedPlayer;
-      const removedVotes = effectiveVotes.filter(
-        (vote) => vote === protectedPlayer,
-      );
-      effectiveVotes = effectiveVotes.filter(
-        (vote) => vote !== protectedPlayer,
-      );
+      const removedVotes = effectiveVotes.filter((vote) => vote === protectedPlayer);
+      effectiveVotes = effectiveVotes.filter((vote) => vote !== protectedPlayer);
 
       if (removedVotes.length > 0) {
-        await this.interaction.followUp({
-          content: `${removedVotes.length} vote${removedVotes.length === 1 ? "" : "s"} for <@${protectedPlayer.id}> ${removedVotes.length === 1 ? "does" : "do"} not count due to the immunity idol played by <@${protection.playedBy.id}>.`,
-        });
-        await new Promise((resolve) => setTimeout(resolve, 2 * 1000));
+        await this.say(
+          `${removedVotes.length} vote${removedVotes.length === 1 ? "" : "s"} for <@${protectedPlayer.id}> ${removedVotes.length === 1 ? "does" : "do"} not count due to the immunity idol played by <@${protection.playedBy.id}>.`,
+        );
+        await this.sleep(GameConfig.timings.voteReadMs);
       }
     }
 
     // Announce any nullified idols
     for (const nullification of this.idolNullifications) {
-      await this.interaction.followUp({
-        content: `<@${nullification.originalIdolPlayer.id}>'s immunity idol was nullified by <@${nullification.nullifiedBy.id}>. Votes for <@${nullification.originalProtectedPlayer.id}> will count.`,
-      });
-      await new Promise((resolve) => setTimeout(resolve, 2 * 1000));
+      await this.say(
+        `<@${nullification.originalIdolPlayer.id}>'s immunity idol was nullified by <@${nullification.nullifiedBy.id}>. Votes for <@${nullification.originalProtectedPlayer.id}> will count.`,
+      );
+      await this.sleep(GameConfig.timings.voteReadMs);
+    }
+
+    const immunePlayers = new Set(activeProtections.map((p) => p.protectedPlayer));
+    const picks = this.tribalCouncilType === TribalCouncilType.DOUBLE ? 2 : 1;
+
+    // No votes left: everyone eligible is tied
+    if (effectiveVotes.length === 0) {
+      await this.say(
+        this.votesArray.length === 0
+          ? "🗳️ **Nobody voted!** With no votes cast, this counts as a tie between all players!"
+          : "🛡️ **UNPRECEDENTED!** All votes have been cancelled by immunity idols! This counts as a tie between all players!",
+      );
+      await this.sleep(GameConfig.timings.voteReadMs);
+
+      const allAlivePlayers = Game.getAlivePlayers();
+      const nonImmuneAlivePlayers = allAlivePlayers.filter((p) => !immunePlayers.has(p));
+      // If there is at least one non-immune player, only they are eligible for the tie.
+      // If EVERY remaining player is immune, the immunity exclusion does not apply.
+      const eligiblePlayers =
+        nonImmuneAlivePlayers.length > 0 ? nonImmuneAlivePlayers : allAlivePlayers;
+      const list = eligiblePlayers.map(mention).join(", ");
+      const intro =
+        immunePlayers.size === 0
+          ? `Eligible players: ${list}`
+          : nonImmuneAlivePlayers.length > 0
+            ? `Immune players are safe. Only non-immune players are eligible: ${list}`
+            : `All players are immune this round; immunity exclusion is lifted. Eligible players: ${list}`;
+
+      if (eligiblePlayers.length <= picks) {
+        await this.say(`${intro}\nThat decides it.`);
+        return { kind: "out", players: eligiblePlayers };
+      }
+      return { kind: "tie", tied: eligiblePlayers, picks, intro };
     }
 
     // Count votes for each player using effective votes
@@ -174,112 +288,25 @@ class TribalCouncil {
       voteMap.set(player, (voteMap.get(player) || 0) + 1);
     });
 
-    // Handle case where all votes were cancelled by idols
-    if (effectiveVotes.length === 0) {
-      await this.interaction.followUp({
-        content:
-          "🛡️ **UNPRECEDENTED!** All votes have been cancelled by immunity idols! This counts as a tie between all players!",
-      });
-      await new Promise((resolve) => setTimeout(resolve, 3 * 1000));
-
-      // Determine which players are immune (protected by active, non-nullified idols)
-      const activeProtections = this.idolProtections.filter((protection) => {
-        return !this.idolNullifications.some(
-          (nullification) =>
-            nullification.originalIdolPlayer === protection.playedBy &&
-            nullification.originalProtectedPlayer ===
-            protection.protectedPlayer,
-        );
-      });
-      const immunePlayers = activeProtections.map(
-        (p) => p.protectedPlayer,
-      );
-      const allAlivePlayers = Game.getAlivePlayers();
-      const nonImmuneAlivePlayers = allAlivePlayers.filter(
-        (p) => !immunePlayers.includes(p),
-      );
-
-      // If there is at least one non-immune player, only they are eligible for the tie.
-      // If EVERY remaining player is immune, the immunity exclusion does not apply.
-      const eligiblePlayers =
-        nonImmuneAlivePlayers.length > 0
-          ? nonImmuneAlivePlayers
-          : allAlivePlayers;
-
-      this.tiedPlayers = eligiblePlayers;
-
-      let tieMessage = "";
-      const basePrefix =
-        nonImmuneAlivePlayers.length > 0
-          ? `All votes targeted immune players. Only non-immune players are eligible: ${eligiblePlayers
-            .map((p) => `<@${p.id}>`)
-            .join(", ")}\n`
-          : `All players are immune this round; immunity exclusion is lifted. Eligible players: ${eligiblePlayers
-            .map((p) => `<@${p.id}>`)
-            .join(", ")}\n`;
-
-      if (this.tribalCouncilType === TribalCouncilType.SINGLE) {
-        tieMessage =
-          basePrefix +
-          `As the tribal council leader, <@${this.leader?.id}> must break the tie.\n` +
-          `<@${this.leader?.id}>, use "/break_tie player1:@player" to select the player to eliminate.`;
-      } else if (this.tribalCouncilType === TribalCouncilType.DOUBLE) {
-        // Check if eliminating 2 would leave only 1 player
-        if (eligiblePlayers.length <= 3) {
-          tieMessage =
-            basePrefix +
-            `Eliminating 2 players would end the game. As the tribal council leader, <@${this.leader?.id}> must choose 1 player to eliminate.\n` +
-            `<@${this.leader?.id}>, use "/break_tie player1:@player" to select the player to eliminate.`;
-        } else {
-          tieMessage =
-            basePrefix +
-            `As the tribal council leader, <@${this.leader?.id}> must break the tie.\n` +
-            `<@${this.leader?.id}>, use "/break_tie player1:@player player2:@player" to select the 2 players to eliminate.`;
-        }
-      }
-
-      await this.interaction.followUp({ content: tieMessage });
-      return { tie: true, players: eligiblePlayers };
-    }
+    // Perform dramatic vote reading
+    await this.performVoteReading(effectiveVotes);
 
     // Get sorted vote counts (highest to lowest)
-    const sortedVotes = Array.from(voteMap.entries()).sort(
-      ([, a], [, b]) => b - a,
-    );
-
-    // Perform dramatic vote reading
-    await this.performVoteReading(effectiveVotes, voteMap);
-
-    // Determine elimination logic based on tribal council type
-    if (this.tribalCouncilType === TribalCouncilType.SINGLE) {
-      return this.handleSingleElimination(sortedVotes);
-    } else if (this.tribalCouncilType === TribalCouncilType.DOUBLE) {
-      return this.handleDoubleElimination(sortedVotes);
-    }
-
-    // Fallback (shouldn't reach here)
-    return { tie: false, players: [] };
+    const sortedVotes = Array.from(voteMap.entries()).sort(([, a], [, b]) => b - a);
+    return this.tribalCouncilType === TribalCouncilType.DOUBLE
+      ? this.handleDoubleElimination(sortedVotes, immunePlayers)
+      : this.handleSingleElimination(sortedVotes);
   }
 
-  private async performVoteReading(
-    effectiveVotes: Player[],
-    voteMap: Map<Player, number>,
-  ) {
-    // Create vote reading order - shuffle for suspense
-    let allVotes = [...effectiveVotes];
-
-    // Shuffle the votes for suspense (Fisher-Yates shuffle)
-    for (let i = allVotes.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [allVotes[i], allVotes[j]] = [allVotes[j], allVotes[i]];
-    }
+  private async performVoteReading(effectiveVotes: Player[]) {
+    // Shuffle the votes for suspense
+    const allVotes = shuffled(effectiveVotes);
 
     // Keep track of running vote counts for dramatic effect
     const runningCounts = new Map<Player, number>();
 
     // Read votes one by one
-    for (let i = 0; i < allVotes.length; i++) {
-      const votedPlayer = allVotes[i];
+    for (const votedPlayer of allVotes) {
       const currentCount = (runningCounts.get(votedPlayer) || 0) + 1;
       runningCounts.set(votedPlayer, currentCount);
 
@@ -288,170 +315,122 @@ class TribalCouncil {
           ? "ONE VOTE"
           : `${this.numberToWords(currentCount).toUpperCase()} VOTES`;
 
-      await this.interaction.followUp({
-        content: `${countText}: <@${votedPlayer.id}>`,
-      });
+      await this.say(`${countText}: <@${votedPlayer.id}>`);
 
       // Add suspenseful delay between vote reads
-      await new Promise((resolve) => setTimeout(resolve, 3 * 1000));
+      await this.sleep(GameConfig.timings.voteReadMs);
     }
   }
 
-  private async handleSingleElimination(sortedVotes: [Player, number][]) {
-    if (sortedVotes.length === 0) return { tie: false, players: [] };
+  private votesText(count: number): string {
+    return `${this.numberToWords(count).toUpperCase()} ${count === 1 ? "VOTE" : "VOTES"}`;
+  }
 
+  private async handleSingleElimination(
+    sortedVotes: [Player, number][],
+  ): Promise<VoteResult> {
     const maxVotes = sortedVotes[0][1];
     const playersWithMostVotes = sortedVotes
       .filter(([, votes]) => votes === maxVotes)
       .map(([player]) => player);
-
-    const totalLivesLost = Game.players.reduce(
-      (total, player) => total + (2 - player.lives),
-      0,
-    );
-    const eliminationNumber = totalLivesLost + 1;
+    const eliminationNumber = Game.totalVoteOuts() + 1;
 
     if (playersWithMostVotes.length === 1) {
       const eliminatedPlayer = playersWithMostVotes[0];
-
-      await this.interaction.followUp({
-        content: `${this.getOrdinal(eliminationNumber)} person voted out of Survivor with ${this.numberToWords(maxVotes).toUpperCase()} ${maxVotes === 1 ? "VOTE" : "VOTES"}...`,
-      });
-
-      await new Promise((resolve) => setTimeout(resolve, 5 * 1000));
-
-      await this.interaction.followUp({
-        content: `<@${eliminatedPlayer.id}>`,
-      });
-
-      return { tie: false, players: [eliminatedPlayer] };
-    } else {
-      await this.interaction.followUp({
-        content: `WE HAVE A TIE! ${playersWithMostVotes.map((p) => `<@${p.id}>`).join(" and ")} are tied with ${this.numberToWords(maxVotes).toUpperCase()} ${maxVotes === 1 ? "VOTE" : "VOTES"} each.`,
-      });
-      return { tie: true, players: playersWithMostVotes };
+      await this.say(
+        `${this.getOrdinal(eliminationNumber)} person voted out of Survivor with ${this.votesText(maxVotes)}...`,
+      );
+      await this.sleep(GameConfig.timings.suspenseMs);
+      await this.say(`<@${eliminatedPlayer.id}>`);
+      return { kind: "out", players: [eliminatedPlayer] };
     }
+
+    await this.say(
+      `WE HAVE A TIE! ${playersWithMostVotes.map(mention).join(" and ")} are tied with ${this.votesText(maxVotes)} each.`,
+    );
+    return { kind: "tie", tied: playersWithMostVotes, picks: 1 };
   }
 
-  private async handleDoubleElimination(sortedVotes: [Player, number][]) {
-    if (sortedVotes.length === 0) return { tie: false, players: [] };
+  private async handleDoubleElimination(
+    sortedVotes: [Player, number][],
+    immunePlayers: Set<Player>,
+  ): Promise<VoteResult> {
+    // Everyone who can still go home, including players nobody voted for
+    // (they are tied at zero if second place comes down to them).
+    const counts = new Map(sortedVotes);
+    const ranked: [Player, number][] = Game.getAlivePlayers()
+      .filter((player) => !immunePlayers.has(player))
+      .map((player): [Player, number] => [player, counts.get(player) ?? 0])
+      .sort(([, a], [, b]) => b - a);
 
-    const maxVotes = sortedVotes[0][1];
-    const secondMaxVotes = sortedVotes.length > 1 ? sortedVotes[1][1] : 0;
-
-    const playersWithMostVotes = sortedVotes
+    const maxVotes = ranked[0][1];
+    const playersWithMostVotes = ranked
       .filter(([, votes]) => votes === maxVotes)
       .map(([player]) => player);
+    const eliminationNumber = Game.totalVoteOuts() + 1;
 
-    const playersWithSecondMostVotes = sortedVotes
-      .filter(([, votes]) => votes === secondMaxVotes && votes < maxVotes)
+    if (playersWithMostVotes.length >= 3) {
+      // 3+ players tied for most votes - leader chooses 2
+      await this.say(
+        `WE HAVE A TIE! ${playersWithMostVotes.map(mention).join(", ")} are tied with ${this.votesText(maxVotes)} each.`,
+      );
+      return { kind: "tie", tied: playersWithMostVotes, picks: 2 };
+    }
+
+    if (playersWithMostVotes.length === 2) {
+      // Two players tied for first, both voted out
+      const eliminated = playersWithMostVotes;
+      await this.say(
+        `${this.getOrdinal(eliminationNumber)} and ${this.getOrdinal(eliminationNumber + 1)} people voted out of Survivor, tied with ${this.votesText(maxVotes)} each...`,
+      );
+      await this.sleep(GameConfig.timings.suspenseMs);
+      await this.say(`<@${eliminated[0].id}> and <@${eliminated[1].id}>`);
+      return { kind: "out", players: eliminated };
+    }
+
+    const first = playersWithMostVotes[0];
+    const rest = ranked.filter(([player]) => player !== first);
+    if (rest.length === 0) {
+      // Nobody else can go home (everyone else is immune)
+      await this.say(
+        `${this.getOrdinal(eliminationNumber)} person voted out of Survivor with ${this.votesText(maxVotes)}...`,
+      );
+      await this.sleep(GameConfig.timings.suspenseMs);
+      await this.say(`<@${first.id}>`);
+      return { kind: "out", players: [first] };
+    }
+
+    const secondMaxVotes = rest[0][1];
+    const playersWithSecondMostVotes = rest
+      .filter(([, votes]) => votes === secondMaxVotes)
       .map(([player]) => player);
 
-    const totalLivesLost = Game.players.reduce(
-      (total, player) => total + (2 - player.lives),
-      0,
+    if (playersWithSecondMostVotes.length === 1) {
+      // Clear case: 1st place and 2nd place, both voted out
+      const second = playersWithSecondMostVotes[0];
+      await this.say(
+        `${this.getOrdinal(eliminationNumber)} and ${this.getOrdinal(eliminationNumber + 1)} people voted out of Survivor...`,
+      );
+      await this.sleep(GameConfig.timings.suspenseMs);
+      await this.say(
+        `<@${first.id}> with ${this.votesText(maxVotes)} and <@${second.id}> with ${this.votesText(secondMaxVotes)}`,
+      );
+      return { kind: "out", players: [first, second] };
+    }
+
+    // 1 clear first place, several tied for second: first goes now, leader picks the second
+    await this.say(
+      `${this.getOrdinal(eliminationNumber)} person voted out of Survivor with ${this.votesText(maxVotes)}...`,
     );
-    const eliminationNumber = totalLivesLost + 1;
-
-    // Check if eliminating 2 players would leave only 1 player (game over scenario)
-    const aliveCount = Game.getAlivePlayers().length;
-    if (aliveCount <= 3) {
-      // Special case: prevent ending with 1 player
-      if (playersWithMostVotes.length >= 2) {
-        await this.interaction.followUp({
-          content: `Multiple players are tied for elimination, but eliminating 2 would end the game. The tribal council leader must choose 1 player to eliminate.`,
-        });
-        return { tie: true, players: playersWithMostVotes };
-      }
-    }
-
-    if (
-      playersWithMostVotes.length === 1 &&
-      playersWithSecondMostVotes.length === 1
-    ) {
-      // Clear case: 1st place and 2nd place, both eliminated
-      const eliminated = [
-        playersWithMostVotes[0],
-        playersWithSecondMostVotes[0],
-      ];
-
-      await this.interaction.followUp({
-        content: `${this.getOrdinal(eliminationNumber)} and ${this.getOrdinal(eliminationNumber + 1)} people voted out of Survivor...`,
-      });
-
-      await new Promise((resolve) => setTimeout(resolve, 5 * 1000));
-
-      await this.interaction.followUp({
-        content: `<@${eliminated[0].id}> with ${this.numberToWords(maxVotes).toUpperCase()} ${maxVotes === 1 ? "VOTE" : "VOTES"} and <@${eliminated[1].id}> with ${this.numberToWords(secondMaxVotes).toUpperCase()} ${secondMaxVotes === 1 ? "VOTE" : "VOTES"}`,
-      });
-
-      return { tie: false, players: eliminated };
-    } else if (
-      playersWithMostVotes.length === 2 &&
-      playersWithSecondMostVotes.length === 0
-    ) {
-      // Two players tied for first, both eliminated
-      const eliminated = playersWithMostVotes;
-
-      await this.interaction.followUp({
-        content: `${this.getOrdinal(eliminationNumber)} and ${this.getOrdinal(eliminationNumber + 1)} people voted out of Survivor, tied with ${this.numberToWords(maxVotes).toUpperCase()} ${maxVotes === 1 ? "VOTE" : "VOTES"} each...`,
-      });
-
-      await new Promise((resolve) => setTimeout(resolve, 5 * 1000));
-
-      await this.interaction.followUp({
-        content: `<@${eliminated[0].id}> and <@${eliminated[1].id}>`,
-      });
-
-      return { tie: false, players: eliminated };
-    } else if (
-      playersWithMostVotes.length === 1 &&
-      playersWithSecondMostVotes.length >= 2
-    ) {
-      // 1 clear winner, multiple tied for second - eliminate first, then leader decides second
-      const firstEliminated = playersWithMostVotes[0];
-
-      await this.interaction.followUp({
-        content: `${this.getOrdinal(eliminationNumber)} person voted out of Survivor with ${this.numberToWords(maxVotes).toUpperCase()} ${maxVotes === 1 ? "VOTE" : "VOTES"}...`,
-      });
-
-      await new Promise((resolve) => setTimeout(resolve, 3 * 1000));
-
-      await this.interaction.followUp({
-        content: `<@${firstEliminated.id}>`,
-      });
-
-      // Eliminate the first player immediately
-      firstEliminated.lives--;
-      await this.interaction.followUp({
-        content: `<@${firstEliminated.id}> has been voted out, they have ${firstEliminated.lives} lives left.`,
-      });
-
-      if (!firstEliminated.isAlive()) {
-        await this.interaction.followUp({
-          content: `<@${firstEliminated.id}> has been ELIMINATED and their torch has been snuffed. https://tenor.com/bExpm.gif`,
-        });
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, 2 * 1000));
-
-      await this.interaction.followUp({
-        content: `Multiple players are tied for second place with ${this.numberToWords(secondMaxVotes).toUpperCase()} ${secondMaxVotes === 1 ? "VOTE" : "VOTES"} each. The tribal council leader must choose who else to eliminate.`,
-      });
-
-      // Set up tie for second elimination
-      this.tiedPlayers = playersWithSecondMostVotes;
-      return {
-        tie: true,
-        players: playersWithSecondMostVotes,
-      };
-    } else {
-      // 3+ players tied for most votes - leader chooses 2
-      await this.interaction.followUp({
-        content: `WE HAVE A TIE! ${playersWithMostVotes.map((p) => `<@${p.id}>`).join(", ")} are tied with ${this.numberToWords(maxVotes).toUpperCase()} ${maxVotes === 1 ? "VOTE" : "VOTES"} each.`,
-      });
-      return { tie: true, players: playersWithMostVotes };
-    }
+    await this.sleep(GameConfig.timings.suspenseMs);
+    await this.say(`<@${first.id}>`);
+    return {
+      kind: "tie",
+      tied: playersWithSecondMostVotes,
+      picks: 1,
+      alreadyOut: [first],
+      intro: `Multiple players are tied for second place with ${this.votesText(secondMaxVotes)} each: ${playersWithSecondMostVotes.map(mention).join(", ")}. The tribal council leader must choose who else to vote out.`,
+    };
   }
 
   private numberToWords(num: number): string {
@@ -477,108 +456,236 @@ class TribalCouncil {
     return num + (suffix[(value - 20) % 10] || suffix[value] || suffix[0]);
   }
 
-  async breakTie(players: Player[]) {
-    const totalLivesLost = Game.players.reduce(
-      (total, player) => total + (2 - player.lives),
-      0,
-    );
+  private async resolve(result: VoteResult) {
+    if (result.kind === "out") {
+      await this.voteOut(result.players);
+      await this.finish();
+      return;
+    }
 
-    for (let i = 0; i < players.length; i++) {
-      const player = players[i];
-      const eliminationNumber = totalLivesLost + i + 1;
-      player.lives--;
-
-      await this.interaction.followUp({
-        content: `${this.getOrdinal(eliminationNumber)} person voted out of Survivor: <@${player.id}>. They have ${player.lives} lives left.`,
-      });
-
-      if (!player.isAlive()) {
-        await this.interaction.followUp({
-          content: `<@${player.id}> has been ELIMINATED and their torch has been snuffed. https://tenor.com/bExpm.gif`,
-        });
+    if (result.alreadyOut?.length) {
+      await this.voteOut(result.alreadyOut);
+      if (this.isStale()) return;
+      if (Game.getAlivePlayers().length <= 2) {
+        await this.finish();
+        return;
       }
     }
 
-    this.cleanup();
+    const tied = result.tied.filter((player) => player.isAlive());
+    if (tied.length <= result.picks) {
+      await this.voteOut(tied);
+      await this.finish();
+      return;
+    }
+    await this.setupTie(tied, result.picks, result.intro);
   }
 
-  async cleanup() {
-    // TODO check to start final tribal council
-    Game.tribalCouncilState = TribalCouncilState.NotStarted;
-    Game.tribalCouncil = null;
+  private async setupTie(tied: Player[], picks: number, intro?: string) {
+    this.tiedPlayers = tied;
+    this.pendingTie = { tied, picks };
+    const usage =
+      picks === 2
+        ? `"/break_tie player1:@player player2:@player" to select the 2 players to vote out`
+        : `"/break_tie player1:@player" to select the player to vote out`;
+    await this.say(
+      `${intro ?? `The vote was a tie between ${tied.map(mention).join(", ")}!`}\n` +
+        `As the tribal council leader, <@${this.leader?.id}> must break the tie.\n` +
+        `<@${this.leader?.id}>, use ${usage}. If there's no decision within ${formatDuration(GameConfig.timings.tieBreakMs)}, the tie will be settled by drawing rocks.`,
+    );
+    this.schedule(() => void this.drawRocks(), GameConfig.timings.tieBreakMs);
+  }
+
+  /**
+   * Claims the pending tie so only one decision (the leader's or the rocks')
+   * can settle it. Returns null if it was already settled.
+   */
+  takeTie(): PendingTie | null {
+    const tie = this.pendingTie;
+    if (!tie || this.finished) return null;
+    this.pendingTie = null;
+    this.clearTimers();
+    return tie;
+  }
+
+  /** The leader took too long: the tied players draw rocks (a random pick). */
+  private async drawRocks() {
+    if (this.isStale()) return;
+    const tie = this.takeTie();
+    if (!tie) return;
+    const losers = shuffled(tie.tied).slice(0, tie.picks);
+    await this.say(
+      `⏳ <@${this.leader?.id}> didn't break the tie in time, so it's time to draw rocks... ${losers.map(mention).join(" and ")} drew the purple rock${losers.length === 1 ? "" : "s"}.`,
+    );
+    await this.breakTie(losers);
+  }
+
+  /**
+   * Votes out the players the leader picked (or who drew the purple rock).
+   * Claim the tie with takeTie() first.
+   */
+  async breakTie(players: Player[]) {
+    if (this.finished) return;
+    let eliminationNumber = Game.totalVoteOuts() + 1;
+    for (const player of players) {
+      await this.say(
+        `${this.getOrdinal(eliminationNumber++)} person voted out of Survivor: <@${player.id}>.`,
+      );
+    }
+    await this.voteOut(players);
+    await this.finish();
+  }
+
+  /** Turns over a castaway for each player and announces any eliminations. */
+  private async voteOut(players: Player[]) {
+    if (this.isGameStale()) return;
+    const outcomes = Game.applyVoteOuts(players);
+    for (const outcome of outcomes) {
+      if (outcome.eliminated) this.eliminated.push(outcome.player);
+    }
+    for (const outcome of outcomes) {
+      const { player, castaway } = outcome;
+      const lives = player.lives;
+      const livesLeft =
+        lives === 0
+          ? "That was their last castaway."
+          : `They have ${lives} ${lives === 1 ? "life" : "lives"} left.`;
+      await this.say(
+        `<@${player.id}> has been voted out${castaway ? `, and their castaway **${castaway.name}** is grayed out` : ""}. ${livesLeft}`,
+      );
+      if (outcome.eliminated) {
+        await this.say(
+          `<@${player.id}> has been ELIMINATED and their torch has been snuffed. They join the jury. ${snuffedGif}`,
+        );
+      }
+    }
+  }
+
+  /** Hands the eliminated players' cards to their heirs (or the discard pile). */
+  private async settleHands() {
+    for (const settlement of Game.settleEliminatedHands(this.eliminated)) {
+      const { player, heir, inheritedCards, discardedCount } = settlement;
+      if (heir) {
+        const count = inheritedCards.length;
+        await this.say(
+          `📜 <@${heir.id}> played **Inheritance: ${player.username}** and inherits ${count} card${count === 1 ? "" : "s"} from <@${player.id}>.`,
+        );
+        if (count > 0) {
+          await sendDM(
+            this.interaction.client,
+            heir.id,
+            `You inherited ${inheritedCards.map((card) => `**${card.getName()}**`).join(", ")} from ${player.username} in the Survivor game!`,
+          );
+        }
+      } else if (discardedCount > 0) {
+        await this.say(
+          `<@${player.id}>'s ${discardedCount} card${discardedCount === 1 ? "" : "s"} go to the discard pile.`,
+        );
+      }
+    }
+  }
+
+  /** Ends the council: board, then the next turn or the Final Tribal Council. */
+  async finish(showBoard = true) {
+    if (this.finished) return;
+    this.finished = true;
+    this.clearTimers();
+    if (Game.tribalCouncil === this) Game.tribalCouncil = null;
+    // A council from a game that has since ended must not touch the new one.
+    if (this.isGameStale()) return;
+
+    const alive = Game.getAlivePlayers().length;
+    const finalTwo = alive <= 2;
+    // Lock in the Final Tribal Council now, before any awaits, so nobody can
+    // draw (and start another council) while the messages below are posted.
+    Game.tribalCouncilState = finalTwo
+      ? TribalCouncilState.FINAL
+      : TribalCouncilState.NotStarted;
     for (const player of Game.players) {
       player.votes = 0;
     }
-    return await this.interaction.followUp({
-      content: `
-        The tribal council has ended.
-      `,
-    });
+    const next = finalTwo
+      ? undefined
+      : this.leaderChangedByCard && this.leader
+        ? Game.setTurn(this.leader)
+        : Game.advanceTurn(this.drawer);
+
+    await this.settleHands();
+    if (showBoard && !this.isGameStale()) {
+      await this.say(
+        await buildBoardMessage({
+          title: `Tribal Council #${this.number}`,
+          subtitle: finalTwo
+            ? "The tribe has spoken. Only two remain!"
+            : `The tribe has spoken. ${alive} players remain.`,
+          highlightTribal: this.number,
+        }),
+      );
+    }
+    if (this.isGameStale()) return;
+    await this.say(
+      `The tribal council has ended.${next ? ` It's <@${next.id}>'s turn.` : ""}`,
+    );
+    if (finalTwo && !this.isGameStale()) {
+      const started = await startFinalTribalCouncil(this.say);
+      if (typeof started === "string") {
+        console.warn(`Final Tribal Council didn't start: ${started}`);
+      }
+    }
   }
 
   async waitForIdol() {
-    // Set up idol interruption window
+    // Set up idol window
     Game.tribalCouncilState = TribalCouncilState.Immunity;
+    await this.say(
+      `If anyone has an Immunity Idol and would like to play it, now would be the time to do so. You have ${formatDuration(GameConfig.timings.idolWindowMs)}.`,
+    );
+    await this.sleep(GameConfig.timings.idolWindowMs);
+    if (this.isStale()) return;
 
-    await this.interaction.followUp({
-      content:
-        "If anyone has an Immunity Idol and would like to play it, now would be the time to do so. You have 60 seconds.",
-    });
-
-    // Set up interruption for idol plays
-    Game.interruption.active = true;
-    Game.interruption.sender = null;
-    Game.interruption.target = null;
-    Game.interruption.stopped = false;
-
-    // Wait 60 seconds for idol plays
-    const idolPromise = new Promise<boolean>((resolve) => {
-      const timeout = setTimeout(() => {
-        Game.interruption.active = false;
-        resolve(this.idolProtections.length > 0); // Check if any idols were played
-      }, 60 * 1000);
-
-      // Store timeout reference so commands can access it
-      (Game as any).idolTimeout = timeout;
-    });
-
-    const idolPlayed = await idolPromise;
-
-    if (idolPlayed) {
+    if (this.idolProtections.length > 0) {
       // An idol was played, now wait for potential nullifier
       Game.tribalCouncilState = TribalCouncilState.Nullify;
-
-      await this.interaction.followUp({
-        content:
-          "If anyone has an Idol Nullifier and would like to play it, now would be the time to do so. You have 30 seconds.",
-      });
-
-      // Set up interruption for nullifier plays
-      Game.interruption.active = true;
-      Game.interruption.sender = null;
-      Game.interruption.target = null;
-      Game.interruption.stopped = false;
-
-      // Wait 30 seconds for nullifier plays
-      const nullifierPromise = new Promise<boolean>((resolve) => {
-        const timeout = setTimeout(() => {
-          Game.interruption.active = false;
-          resolve(this.idolNullifications.length > 0); // Check if any nullifiers were played
-        }, 30 * 1000);
-
-        // Store timeout reference so commands can access it
-        (Game as any).nullifierTimeout = timeout;
-      });
-
-      await nullifierPromise;
+      await this.say(
+        `If anyone has an Idol Nullifier and would like to play it, now would be the time to do so. You have ${formatDuration(GameConfig.timings.nullifierWindowMs)}.`,
+      );
+      await this.sleep(GameConfig.timings.nullifierWindowMs);
+      if (this.isStale()) return;
     }
 
-    // Reset interruption state and move to reading votes
-    Game.interruption.active = false;
-    Game.interruption.sender = null;
-    Game.interruption.target = null;
-    Game.interruption.stopped = false;
     Game.tribalCouncilState = TribalCouncilState.Reading;
+  }
+
+  /** Stops all timers; used when the game is reset mid-council. */
+  dispose() {
+    this.disposed = true;
+    this.clearTimers();
+  }
+
+  /** The game was reset or ended since this council started. */
+  private isGameStale(): boolean {
+    return this.disposed || !Game.isCurrentGame(this.gameId);
+  }
+
+  private isStale(): boolean {
+    return this.isGameStale() || Game.tribalCouncil !== this;
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => this.schedule(resolve, ms));
+  }
+
+  private schedule(callback: () => void, ms: number) {
+    const timer = setTimeout(() => {
+      this.timers.delete(timer);
+      callback();
+    }, ms);
+    this.timers.add(timer);
+  }
+
+  private clearTimers() {
+    for (const timer of this.timers) clearTimeout(timer);
+    this.timers.clear();
   }
 }
 
