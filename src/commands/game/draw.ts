@@ -64,19 +64,26 @@ export default {
     // check for camp raid
     const raider = player.campRaid;
     if (raider) {
-      const window = await runSorryForYouWindow(
-        interaction,
-        raider,
-        player,
-        (seconds) =>
-          `<@${raider.id}> is attempting to steal <@${player.id}>'s draw... (<@${player.id}> has ~${seconds} seconds remaining to play "Sorry For You")`,
-        // show player card
-        () =>
-          interaction.followUp({
-            content: `You drew a ${card.getName()} (${card.getImage()}), and <@${raider.id}> is attempting to raid your camp and steal it`,
-            flags: MessageFlags.Ephemeral,
-          }),
-      );
+      let window;
+      try {
+        window = await runSorryForYouWindow(
+          interaction,
+          raider,
+          player,
+          (seconds) =>
+            `<@${raider.id}> is attempting to steal <@${player.id}>'s draw... (<@${player.id}> has ~${seconds} seconds remaining to play "Sorry For You")`,
+          // show player card
+          () =>
+            interaction.followUp({
+              content: `You drew a ${card.getName()} (${card.getImage()}), and <@${raider.id}> is attempting to raid your camp and steal it`,
+              flags: MessageFlags.Ephemeral,
+            }),
+        );
+      } catch (error) {
+        // Discord failed mid-draw: put the card back so it isn't lost
+        Game.deck.addCard(card);
+        throw error;
+      }
       if (!window) {
         // Someone else's Sorry for You window is open; try again in a moment.
         Game.deck.addCard(card);

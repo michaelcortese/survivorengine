@@ -22,9 +22,16 @@ async function breakFinalTie(
   if (targets.length !== 1) {
     return replyEphemeral(interaction, "Choose exactly one winner with player1.");
   }
-  await interaction.reply({ content: `<@${player.id}> is breaking the tie...` });
-  const error = await council.breakTie(targets[0]);
-  if (error) await replyEphemeral(interaction, error);
+  // Claimed before replying, so a rocks draw can't settle it at the same time
+  const crowning = council.breakTie(targets[0]);
+  if (typeof crowning === "string") {
+    return replyEphemeral(interaction, crowning);
+  }
+  // The tie is claimed, so finish it even if Discord hiccups on the reply
+  await interaction
+    .reply({ content: `<@${player.id}> is breaking the tie...` })
+    .catch((error) => console.error("Couldn't reply to /break_tie:", error));
+  await crowning;
 }
 
 export default {
@@ -113,7 +120,14 @@ export default {
       );
     }
 
-    await interaction.reply({ content: `<@${player.id}> has broken the tie.` });
+    // Claimed before replying, so a rocks draw can't settle it at the same time
+    if (!tribalCouncil.takeTie()) {
+      return replyEphemeral(interaction, "That tie has already been settled.");
+    }
+    // The tie is claimed, so finish it even if Discord hiccups on the reply
+    await interaction
+      .reply({ content: `<@${player.id}> has broken the tie.` })
+      .catch((error) => console.error("Couldn't reply to /break_tie:", error));
     await tribalCouncil.breakTie(targets);
   },
 };

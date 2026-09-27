@@ -35,6 +35,8 @@ export const GameConfig = {
     sorryForYouWindowMs: secondsFromEnv("SORRY_FOR_YOU_SECONDS", 15),
     /** How long a leader has to break a tie before it is settled by drawing rocks. */
     tieBreakMs: secondsFromEnv("TIE_BREAK_SECONDS", 300),
+    /** How long the jury has to vote at Final Tribal Council before the votes are read. */
+    finalVoteMs: secondsFromEnv("FINAL_VOTE_SECONDS", 10 * 60),
     /** Pause between votes as they are read aloud. */
     voteReadMs: secondsFromEnv("VOTE_READ_SECONDS", 3),
     /** Dramatic pause before the name of the person voted out. */

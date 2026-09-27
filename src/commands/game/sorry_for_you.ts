@@ -177,13 +177,16 @@ export default {
           await comp.reply({ content: "Select first.", flags: MessageFlags.Ephemeral });
           return;
         }
-        stopMenus();
         const random = comp.customId === "forced_discard_cancel";
-        const card = await settle(random ? null : chosenName, (discarded) =>
+        // settle() marks the discard as done before stopping the menus, because
+        // stopping a collector fires its "end" handler straight away.
+        const discarding = settle(random ? null : chosenName, (discarded) =>
           random
             ? `<@${attacker.id}> discarded a card.`
             : `<@${attacker.id}> discarded **${discarded.getName()}**.`,
         );
+        stopMenus();
+        const card = await discarding;
         await comp.update({
           content: card
             ? `${random ? "Auto-discarded" : "You discarded"} **${card.getName()}**.`
@@ -192,8 +195,8 @@ export default {
         });
       });
 
-      buttonCollector.on("end", async () => {
-        if (resolved) return;
+      buttonCollector.on("end", async (_collected, reason) => {
+        if (reason !== "time" || resolved) return;
         stopMenus();
         const card = await settle(null, () => `<@${attacker.id}> failed to choose and auto-discarded a card.`);
         if (card) {

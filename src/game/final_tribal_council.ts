@@ -43,6 +43,7 @@ class FinalTribalCouncil {
   tiedFinalists: Player[] = [];
   private message: Message | null = null;
   private collector: InteractionCollector<ButtonInteraction> | null = null;
+  private voteTimer: NodeJS.Timeout | null = null;
   private tieTimer: NodeJS.Timeout | null = null;
   private revealing = false;
   private finished = false;
@@ -78,6 +79,7 @@ class FinalTribalCouncil {
       `The jury: ${this.jury.map(mention).join(", ")}. <@${this.leader.id}> is the Final Tribal Council Leader and breaks any tie.`,
       "",
       "Finalists, make your case to the jury! Jurors, when you've heard enough, vote for the player you want to **win** with the buttons below (or `/cast_vote`). Votes are secret and final.",
+      `The votes are read once every juror has voted, or after ${formatDuration(GameConfig.timings.finalVoteMs)}.`,
       `🗳️ Votes cast: ${this.votes.size}/${this.jury.length}`,
     ].join("\n");
   }
@@ -97,6 +99,10 @@ class FinalTribalCouncil {
   }
 
   async open() {
+    // A juror who never votes can't hold up the end of the game forever.
+    this.voteTimer = setTimeout(() => {
+      void this.closeVoting();
+    }, GameConfig.timings.finalVoteMs);
     this.message = await this.say({
       content: this.introText(),
       components: this.voteButtons(),
@@ -152,10 +158,19 @@ class FinalTribalCouncil {
     if (this.allVoted) await this.reveal();
   }
 
+  private async closeVoting() {
+    if (!this.votingOpen || this.isStale()) return;
+    await this.say(
+      `⏳ Time's up at Final Tribal Council! Reading the ${this.votes.size} vote${this.votes.size === 1 ? "" : "s"} that are in.`,
+    );
+    await this.reveal();
+  }
+
   /** Reads the votes. Stops early once a finalist has clinched a majority. */
   async reveal() {
     if (!this.votingOpen) return;
     this.revealing = true;
+    if (this.voteTimer) clearTimeout(this.voteTimer);
     this.collector?.stop("reveal");
     await this.message
       ?.edit({ content: `${this.introText()}\n**Voting is closed.**`, components: [] })
@@ -200,24 +215,36 @@ class FinalTribalCouncil {
     }, GameConfig.timings.tieBreakMs);
   }
 
+  /** Claims the tie so only one decision (the leader's or the rocks') counts. */
+  private claimTie() {
+    this.tiedFinalists = [];
+    if (this.tieTimer) clearTimeout(this.tieTimer);
+  }
+
   private async settleTieByRocks() {
     if (!this.awaitingTieBreak || this.isStale()) return;
     const winner = shuffled(this.tiedFinalists)[0];
+    this.claimTie();
     await this.say(
       `⏳ <@${this.leader.id}> didn't decide in time, so it comes down to the rocks...`,
     );
     await this.crown(winner);
   }
 
-  /** The leader picks the winner after a tie. Returns an error message or null. */
-  async breakTie(winner: Player): Promise<string | null> {
+  /**
+   * The leader picks the winner after a tie. Returns an error message, or a
+   * promise for the announcement. The tie is claimed straight away.
+   */
+  breakTie(winner: Player): string | Promise<void> {
     if (!this.awaitingTieBreak) return "There is no tie to break at Final Tribal Council.";
     if (!this.tiedFinalists.includes(winner)) {
       return `Pick one of the tied finalists: ${this.tiedFinalists.map(mention).join(" or ")}.`;
     }
-    await this.say(`<@${this.leader.id}> has cast the deciding vote for <@${winner.id}>.`);
-    await this.crown(winner);
-    return null;
+    this.claimTie();
+    return (async () => {
+      await this.say(`<@${this.leader.id}> has cast the deciding vote for <@${winner.id}>.`);
+      await this.crown(winner);
+    })();
   }
 
   private async crown(winner: Player) {
@@ -244,6 +271,7 @@ class FinalTribalCouncil {
   dispose() {
     this.disposed = true;
     this.collector?.stop("reset");
+    if (this.voteTimer) clearTimeout(this.voteTimer);
     if (this.tieTimer) clearTimeout(this.tieTimer);
   }
 }

@@ -1,5 +1,5 @@
 import { SlashCommandBuilder, ChatInputCommandInteraction } from "discord.js";
-import { Game } from "../../game/game";
+import { Game, TribalCouncilState } from "../../game/game";
 import { startFinalTribalCouncil } from "../../game/final_tribal_council";
 import { createAnnouncer, replyEphemeral } from "../../util/discord";
 
@@ -17,6 +17,9 @@ export default {
     }
     if (!Game.active) {
       return replyEphemeral(interaction, "No game is currently in progress!");
+    }
+    if (Game.tribalCouncilState === TribalCouncilState.FINAL) {
+      return replyEphemeral(interaction, "The Final Tribal Council is starting now.");
     }
     if (Game.tribalCouncil) {
       return replyEphemeral(interaction, "Wait for the current Tribal Council to finish.");

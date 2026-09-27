@@ -32,6 +32,7 @@ export function useFastTimings(overrides: Partial<typeof GameConfig.timings> = {
     nullifierWindowMs: 0,
     sorryForYouWindowMs: 30,
     tieBreakMs: 60_000,
+    finalVoteMs: 60_000,
     voteReadMs: 0,
     suspenseMs: 0,
     lobbyMs: 60_000,
@@ -93,12 +94,17 @@ export class FakeMessage {
 
 export class FakeChannel {
   messages: FakeMessage[] = [];
+  /** Simulated network latency for each message sent. */
+  sendDelayMs = 0;
 
   isSendable() {
     return true;
   }
 
   async send(payload: unknown) {
+    if (this.sendDelayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, this.sendDelayMs));
+    }
     const message = new FakeMessage(normalize(payload));
     this.messages.push(message);
     return message;
@@ -163,6 +169,7 @@ export class FakeInteraction {
   replied = false;
   deferred = false;
   replyMessage: FakeMessage | null = null;
+  followUps: FakeMessage[] = [];
   client = fakeClient;
   memberPermissions = null;
   modal: unknown = null;
@@ -233,7 +240,9 @@ export class FakeInteraction {
 
   async followUp(payload: unknown) {
     if (!this.replied && !this.deferred) throw new Error("Interaction not replied");
-    return new FakeMessage(this.record("followUp", payload));
+    const message = new FakeMessage(this.record("followUp", payload));
+    this.followUps.push(message);
+    return message;
   }
 
   async update(payload: unknown) {

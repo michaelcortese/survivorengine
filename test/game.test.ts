@@ -175,8 +175,12 @@ describe("vote-outs and inheritance", () => {
 
     const [outcome] = Game.applyVoteOuts([outgoing]);
     assert.ok(outcome.eliminated);
-    assert.equal(outcome.heir, heir);
-    assert.deepEqual(outcome.inheritedCards.map((c) => c.getName()), [CardName.ExtraVote, CardName.ImmunityIdol]);
+    // Hands wait until the council's vote-outs are all in
+    assert.equal(outgoing.hand.length, 2);
+
+    const [settlement] = Game.settleEliminatedHands([outgoing]);
+    assert.equal(settlement.heir, heir);
+    assert.deepEqual(settlement.inheritedCards.map((c) => c.getName()), [CardName.ExtraVote, CardName.ImmunityIdol]);
     // The Inheritance card is played; the rest of the heir's hand stays
     assert.deepEqual(heir.hand.map((c) => c.getName()), [CardName.CampRaid, CardName.ExtraVote, CardName.ImmunityIdol]);
     assert.deepEqual(outgoing.hand, []);
@@ -186,22 +190,47 @@ describe("vote-outs and inheritance", () => {
     const { players } = emptyHandedGame(4);
     takeLife(players[3]);
     players[3].hand = [card(CardName.ExtraVote)];
-    const [outcome] = Game.applyVoteOuts([players[3]]);
-    assert.equal(outcome.heir, undefined);
-    assert.equal(outcome.discardedCount, 1);
+    Game.applyVoteOuts([players[3]]);
+    const [settlement] = Game.settleEliminatedHands([players[3]]);
+    assert.equal(settlement.heir, undefined);
+    assert.equal(settlement.discardedCount, 1);
     assert.deepEqual(players[3].hand, []);
   });
 
-  it("someone going home in the same double elimination can't inherit", () => {
+  it("someone going home at the same council can't inherit", () => {
     const { players } = emptyHandedGame(5);
     const [a, b] = [players[0], players[1]];
     takeLife(a);
     takeLife(b);
     a.hand = [card(inheritanceCardName(b.username), b)];
     b.hand = [card(CardName.ExtraVote)];
-    const outcomes = Game.applyVoteOuts([a, b]);
-    assert.ok(outcomes.every((o) => o.eliminated && !o.heir));
+    Game.applyVoteOuts([a, b]);
+    const settlements = Game.settleEliminatedHands([a, b]);
+    assert.ok(settlements.every((s) => !s.heir));
+    assert.equal(settlements[1].discardedCount, 1);
   });
+
+  for (const order of ["A then B", "B then A"]) {
+    it(`settles hands the same way whatever the vote-out order (${order})`, () => {
+      // A holds B's Inheritance card and C holds A's; A and B go out together.
+      const { players } = emptyHandedGame(5);
+      const [a, b, c] = players;
+      takeLife(a);
+      takeLife(b);
+      a.hand = [card(inheritanceCardName(b.username), b), card(CardName.CampRaid)];
+      b.hand = [card(CardName.ExtraVote)];
+      c.hand = [card(inheritanceCardName(a.username), a)];
+      const out = order === "A then B" ? [a, b] : [b, a];
+      Game.applyVoteOuts(out);
+      Game.settleEliminatedHands(out);
+      // A couldn't play B's card (A was out too), so B's hand is discarded and
+      // C inherits A's hand, including the now-useless Inheritance: P2 card.
+      assert.deepEqual(
+        c.hand.map((x) => x.getName()).sort(),
+        [CardName.CampRaid, inheritanceCardName(b.username)].sort(),
+      );
+    });
+  }
 
   it("names the last player out as Final Tribal Council leader when two remain", () => {
     const { players } = emptyHandedGame(3);

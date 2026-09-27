@@ -80,6 +80,8 @@ class TribalCouncil {
   private readonly drawnType: TribalCouncilType;
   private readonly say: Announcer;
   private readonly timers = new Set<NodeJS.Timeout>();
+  /** Players eliminated at this council; their hands are settled at the end. */
+  private readonly eliminated: Player[] = [];
   private finished = false;
   private disposed = false;
 
@@ -494,10 +496,23 @@ class TribalCouncil {
     this.schedule(() => void this.drawRocks(), GameConfig.timings.tieBreakMs);
   }
 
+  /**
+   * Claims the pending tie so only one decision (the leader's or the rocks')
+   * can settle it. Returns null if it was already settled.
+   */
+  takeTie(): PendingTie | null {
+    const tie = this.pendingTie;
+    if (!tie || this.finished) return null;
+    this.pendingTie = null;
+    this.clearTimers();
+    return tie;
+  }
+
   /** The leader took too long: the tied players draw rocks (a random pick). */
   private async drawRocks() {
-    const tie = this.pendingTie;
-    if (!tie || this.isStale()) return;
+    if (this.isStale()) return;
+    const tie = this.takeTie();
+    if (!tie) return;
     const losers = shuffled(tie.tied).slice(0, tie.picks);
     await this.say(
       `⏳ <@${this.leader?.id}> didn't break the tie in time, so it's time to draw rocks... ${losers.map(mention).join(" and ")} drew the purple rock${losers.length === 1 ? "" : "s"}.`,
@@ -505,12 +520,12 @@ class TribalCouncil {
     await this.breakTie(losers);
   }
 
-  /** Votes out the players the leader picked (or who drew the purple rock). */
+  /**
+   * Votes out the players the leader picked (or who drew the purple rock).
+   * Claim the tie with takeTie() first.
+   */
   async breakTie(players: Player[]) {
-    if (!this.pendingTie || this.finished) return;
-    this.pendingTie = null;
-    this.clearTimers();
-
+    if (this.finished) return;
     let eliminationNumber = Game.totalVoteOuts() + 1;
     for (const player of players) {
       await this.say(
@@ -521,9 +536,13 @@ class TribalCouncil {
     await this.finish();
   }
 
-  /** Turns over a castaway for each player, and announces eliminations and inheritances. */
+  /** Turns over a castaway for each player and announces any eliminations. */
   private async voteOut(players: Player[]) {
+    if (this.isGameStale()) return;
     const outcomes = Game.applyVoteOuts(players);
+    for (const outcome of outcomes) {
+      if (outcome.eliminated) this.eliminated.push(outcome.player);
+    }
     for (const outcome of outcomes) {
       const { player, castaway } = outcome;
       const lives = player.lives;
@@ -534,27 +553,33 @@ class TribalCouncil {
       await this.say(
         `<@${player.id}> has been voted out${castaway ? `, and their castaway **${castaway.name}** is grayed out` : ""}. ${livesLeft}`,
       );
-      if (!outcome.eliminated) continue;
-
-      await this.say(
-        `<@${player.id}> has been ELIMINATED and their torch has been snuffed. They join the jury. ${snuffedGif}`,
-      );
-      const heir = outcome.heir;
-      const inherited = outcome.inheritedCards.length;
-      if (heir) {
+      if (outcome.eliminated) {
         await this.say(
-          `📜 <@${heir.id}> played **Inheritance: ${player.username}** and inherits ${inherited} card${inherited === 1 ? "" : "s"} from <@${player.id}>.`,
+          `<@${player.id}> has been ELIMINATED and their torch has been snuffed. They join the jury. ${snuffedGif}`,
         );
-        if (inherited > 0) {
+      }
+    }
+  }
+
+  /** Hands the eliminated players' cards to their heirs (or the discard pile). */
+  private async settleHands() {
+    for (const settlement of Game.settleEliminatedHands(this.eliminated)) {
+      const { player, heir, inheritedCards, discardedCount } = settlement;
+      if (heir) {
+        const count = inheritedCards.length;
+        await this.say(
+          `📜 <@${heir.id}> played **Inheritance: ${player.username}** and inherits ${count} card${count === 1 ? "" : "s"} from <@${player.id}>.`,
+        );
+        if (count > 0) {
           await sendDM(
             this.interaction.client,
             heir.id,
-            `You inherited ${outcome.inheritedCards.map((card) => `**${card.getName()}**`).join(", ")} from ${player.username} in the Survivor game!`,
+            `You inherited ${inheritedCards.map((card) => `**${card.getName()}**`).join(", ")} from ${player.username} in the Survivor game!`,
           );
         }
-      } else if (outcome.discardedCount > 0) {
+      } else if (discardedCount > 0) {
         await this.say(
-          `<@${player.id}>'s ${outcome.discardedCount} card${outcome.discardedCount === 1 ? "" : "s"} go to the discard pile.`,
+          `<@${player.id}>'s ${discardedCount} card${discardedCount === 1 ? "" : "s"} go to the discard pile.`,
         );
       }
     }
@@ -565,22 +590,28 @@ class TribalCouncil {
     if (this.finished) return;
     this.finished = true;
     this.clearTimers();
-    Game.tribalCouncilState = TribalCouncilState.NotStarted;
     if (Game.tribalCouncil === this) Game.tribalCouncil = null;
-    for (const player of Game.players) {
-      player.votes = 0;
-    }
+    // A council from a game that has since ended must not touch the new one.
     if (this.isGameStale()) return;
 
     const alive = Game.getAlivePlayers().length;
     const finalTwo = alive <= 2;
+    // Lock in the Final Tribal Council now, before any awaits, so nobody can
+    // draw (and start another council) while the messages below are posted.
+    Game.tribalCouncilState = finalTwo
+      ? TribalCouncilState.FINAL
+      : TribalCouncilState.NotStarted;
+    for (const player of Game.players) {
+      player.votes = 0;
+    }
     const next = finalTwo
       ? undefined
       : this.leaderChangedByCard && this.leader
         ? Game.setTurn(this.leader)
         : Game.advanceTurn(this.drawer);
 
-    if (showBoard) {
+    await this.settleHands();
+    if (showBoard && !this.isGameStale()) {
       await this.say(
         await buildBoardMessage({
           title: `Tribal Council #${this.number}`,
@@ -591,12 +622,15 @@ class TribalCouncil {
         }),
       );
     }
+    if (this.isGameStale()) return;
     await this.say(
       `The tribal council has ended.${next ? ` It's <@${next.id}>'s turn.` : ""}`,
     );
-    if (finalTwo) {
+    if (finalTwo && !this.isGameStale()) {
       const started = await startFinalTribalCouncil(this.say);
-      if (typeof started === "string") await this.say(started);
+      if (typeof started === "string") {
+        console.warn(`Final Tribal Council didn't start: ${started}`);
+      }
     }
   }
 

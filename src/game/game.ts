@@ -67,10 +67,15 @@ interface VoteOutOutcome {
   castaway: Castaway | undefined;
   /** True when that was the player's last castaway. */
   eliminated: boolean;
+}
+
+/** What happened to an eliminated player's hand. */
+interface HandSettlement {
+  player: Player;
   /** Who played this player's Inheritance card and took their hand. */
   heir?: Player;
   inheritedCards: Card[];
-  /** Cards discarded because nobody held the Inheritance card. */
+  /** Cards discarded because nobody still in the game held the Inheritance card. */
   discardedCount: number;
 }
 
@@ -359,56 +364,60 @@ class GameManager {
 
   /**
    * Turns over one castaway for each player voted out. Players who lose their
-   * last castaway are eliminated: per the official rules their hand goes to
-   * whoever holds their Inheritance card, otherwise it is discarded.
+   * last castaway are eliminated; their hands are settled at the end of the
+   * council with settleEliminatedHands().
    */
   applyVoteOuts(votedOut: Player[]): VoteOutOutcome[] {
     const outcomes: VoteOutOutcome[] = votedOut.map((player) => {
       const castaway = player.loseLife(this.tribalCouncilCount);
-      return {
-        player,
-        castaway,
-        eliminated: !player.isAlive(),
-        inheritedCards: [],
-        discardedCount: 0,
-      };
+      const eliminated = !player.isAlive();
+      if (eliminated) {
+        player.votes = 0;
+        // Camp Raids by or on an eliminated player no longer do anything.
+        player.campRaid = undefined;
+        for (const other of this.players) {
+          if (other.campRaid === player) other.campRaid = undefined;
+        }
+      }
+      return { player, castaway, eliminated };
     });
 
-    // Hands are settled after every vote-out has landed, so someone going home
-    // in the same double elimination can't inherit.
-    for (const outcome of outcomes) {
-      if (!outcome.eliminated) continue;
-      const eliminated = outcome.player;
-      const heir = this.players.find(
-        (p) =>
-          p.isAlive() &&
-          p.hand.some((card) => card.inheritancePlayer === eliminated),
-      );
-      if (heir) {
-        const inheritanceIndex = heir.hand.findIndex(
-          (card) => card.inheritancePlayer === eliminated,
-        );
-        heir.hand.splice(inheritanceIndex, 1); // the Inheritance card is played
-        outcome.heir = heir;
-        outcome.inheritedCards = [...eliminated.hand];
-        heir.hand.push(...eliminated.hand);
-      } else {
-        outcome.discardedCount = eliminated.hand.length;
-      }
-      eliminated.hand = [];
-      eliminated.votes = 0;
-      // Camp Raids by or on an eliminated player no longer do anything.
-      eliminated.campRaid = undefined;
-      for (const player of this.players) {
-        if (player.campRaid === eliminated) player.campRaid = undefined;
-      }
-    }
-
     if (this.getAlivePlayers().length === 2) {
+      // The last player voted out leads the Final Tribal Council.
       const lastOut = [...outcomes].reverse().find((o) => o.eliminated);
       if (lastOut) this.finalTribalLeader = lastOut.player;
     }
     return outcomes;
+  }
+
+  /**
+   * Per the official rules, an eliminated player's hand goes to whoever holds
+   * their Inheritance card, otherwise it is discarded. Called once all of a
+   * council's vote-outs have landed: heirs are decided before any hands move,
+   * and nobody eliminated at the same council can inherit.
+   */
+  settleEliminatedHands(eliminated: Player[]): HandSettlement[] {
+    const heirs = eliminated.map((player) =>
+      this.players.find(
+        (p) =>
+          p.isAlive() &&
+          p.hand.some((card) => card.inheritancePlayer === player),
+      ),
+    );
+    return eliminated.map((player, i) => {
+      const cards = player.hand;
+      player.hand = [];
+      const heir = heirs[i];
+      if (!heir) {
+        return { player, inheritedCards: [], discardedCount: cards.length };
+      }
+      const inheritanceIndex = heir.hand.findIndex(
+        (card) => card.inheritancePlayer === player,
+      );
+      if (inheritanceIndex !== -1) heir.hand.splice(inheritanceIndex, 1); // played
+      heir.hand.push(...cards);
+      return { player, heir, inheritedCards: cards, discardedCount: 0 };
+    });
   }
 
   /** Posts a public message in the game's channel. */
@@ -435,4 +444,10 @@ class GameManager {
 const Game = new GameManager();
 
 export { Game, GameManager, TribalCouncilState };
-export type { ActionRules, ActionCheck, VoteOutOutcome, InterruptionOutcome };
+export type {
+  ActionRules,
+  ActionCheck,
+  VoteOutOutcome,
+  HandSettlement,
+  InterruptionOutcome,
+};

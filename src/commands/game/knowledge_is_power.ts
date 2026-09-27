@@ -85,13 +85,19 @@ export default {
 
     // Taking a card can be blocked with Sorry for You
     const played = player.removeCard(REQUIRED_CARD)!;
-    const window = await runSorryForYouWindow(
-      interaction,
-      player,
-      targetPlayer,
-      (seconds) =>
-        `<@${player.id}> used **Knowledge is Power** to ask <@${targetPlayer.id}> for "${cardName}"! (They have ~${seconds} seconds remaining to play "Sorry For You")`,
-    );
+    let window;
+    try {
+      window = await runSorryForYouWindow(
+        interaction,
+        player,
+        targetPlayer,
+        (seconds) =>
+          `<@${player.id}> used **Knowledge is Power** to ask <@${targetPlayer.id}> for "${cardName}"! (They have ~${seconds} seconds remaining to play "Sorry For You")`,
+      );
+    } catch (error) {
+      player.hand.push(played); // Discord failed: give the card back
+      throw error;
+    }
     if (!window) {
       player.hand.push(played);
       return replyEphemeral(
@@ -106,6 +112,12 @@ export default {
       });
     }
 
+    // Played at Tribal Council, the asker may have been voted out meanwhile
+    if (!player.isAlive() || !Game.active) {
+      return interaction.editReply({
+        content: `<@${player.id}> asked <@${targetPlayer.id}> for "${cardName}", but was voted out before it changed hands.`,
+      });
+    }
     const card = targetPlayer.removeCard(cardName);
     if (!card) {
       return interaction.editReply({

@@ -37,6 +37,8 @@ The board is posted when the game starts and after every Tribal Council. **`/boa
 
 On your turn, steal a random card from someone (`/steal_random`), optionally play a card, then **`/draw`** to end your turn. The bot keeps track of whose turn it is: only that player can draw. If someone is away, anyone can use **`/skip_turn`**.
 
+`/steal_random` isn't locked to your turn, because Reward Challenges and Let's Form an Alliance also end in steals (those are played out at the table, then settled with `/steal_random`, `/give` and `/discard`).
+
 ### Tribal Council
 
 Drawing a Tribal Council card starts one, with you as the leader:
@@ -51,7 +53,7 @@ If the draw pile runs out before the final two, every draw sends the tribe strai
 
 ### Final Tribal Council
 
-When two players remain, the Final Tribal Council starts on its own. The finalists plead their case, and the jury votes for the winner with the buttons (or `/cast_vote`). The votes are read once every juror has voted. The Final Tribal Council Leader (the last player voted out) breaks a tie, and can use `/reveal_votes` to read the votes early if a juror never votes.
+When two players remain, the Final Tribal Council starts on its own. The finalists plead their case, and the jury votes for the winner with the buttons (or `/cast_vote`). The votes are read once every juror has voted, or after 10 minutes. The Final Tribal Council Leader (the last player voted out) breaks a tie, and can use `/reveal_votes` to read the votes early.
 
 ### Commands
 
@@ -82,6 +84,7 @@ Timings can be changed with environment variables, in seconds:
 | `NULLIFIER_WINDOW_SECONDS` | 30 |
 | `SORRY_FOR_YOU_SECONDS` | 15 |
 | `TIE_BREAK_SECONDS` | 300 |
+| `FINAL_VOTE_SECONDS` | 600 |
 | `VOTE_READ_SECONDS` / `SUSPENSE_SECONDS` | 3 / 5 |
 | `LOBBY_SECONDS` | 1800 |
 | `MENU_SECONDS` | 60 |

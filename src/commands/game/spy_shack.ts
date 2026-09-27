@@ -50,13 +50,19 @@ export default {
 
     // The card is played now, whether or not the spying gets blocked
     const played = player.removeCard(REQUIRED_CARD)!;
-    const window = await runSorryForYouWindow(
-      interaction,
-      player,
-      targetPlayer,
-      (seconds) =>
-        `<@${player.id}> is attempting to spy on <@${targetPlayer.id}>... (They have ~${seconds} seconds remaining to play "Sorry For You")`,
-    );
+    let window;
+    try {
+      window = await runSorryForYouWindow(
+        interaction,
+        player,
+        targetPlayer,
+        (seconds) =>
+          `<@${player.id}> is attempting to spy on <@${targetPlayer.id}>... (They have ~${seconds} seconds remaining to play "Sorry For You")`,
+      );
+    } catch (error) {
+      player.hand.push(played); // Discord failed: give the card back
+      throw error;
+    }
     if (!window) {
       player.hand.push(played);
       return replyEphemeral(

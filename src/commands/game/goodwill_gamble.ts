@@ -38,15 +38,15 @@ export default {
     player.removeCard(REQUIRED_CARD);
     targetPlayer.votes += 1;
 
+    // Reply first: Discord only waits 3 seconds for it
+    await interaction.reply({
+      content: `You have given an extra vote to <@${targetPlayer.id}> using Tribal Advantage: Goodwill Gamble.`,
+      flags: MessageFlags.Ephemeral,
+    });
     await sendDM(
       interaction.client,
       targetPlayer.id,
       `You have received an extra vote from <@${player.id}> via Tribal Advantage: Goodwill Gamble! You now have ${targetPlayer.votes} vote(s) for this Tribal Council.`,
     );
-
-    await interaction.reply({
-      content: `You have given an extra vote to <@${targetPlayer.id}> using Tribal Advantage: Goodwill Gamble.`,
-      flags: MessageFlags.Ephemeral,
-    });
   },
 };
