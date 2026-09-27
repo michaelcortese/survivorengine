@@ -71,6 +71,7 @@ import type {
   GameError,
   GameErrorCode,
   PendingId,
+  PendingKind,
   PlayerColor,
   PlayerId,
   Result,
@@ -89,7 +90,12 @@ import {
 import { describeCause, type Logger } from "../logger.js";
 import type { SaveStore } from "../persistence/store.js";
 import { looksLikePendingId } from "../engine/pending.js";
-import type { GameSession, PrivateCourier, SessionRegistry } from "./registry.js";
+import type {
+  GameSession,
+  PrivateCourier,
+  SessionRegistry,
+  WindowPrompter,
+} from "./registry.js";
 import type { OutgoingMessage } from "./render.js";
 import {
   UI_INTENT,
@@ -106,7 +112,8 @@ import {
 /**
  * What a handler hands to the `Responder`. A superset of `render.ts`'s `OutgoingMessage` — the
  * renderer never attaches components, because a component needs a nonce taken from the state
- * the message is being rendered against, and only a live handler holds that.
+ * the message is being rendered against. The one exception is a window prompt, which the session
+ * builds from the live game at the moment it is sent (`WindowPrompter` in `registry.ts`).
  */
 export interface Payload {
   readonly content?: string;
@@ -894,8 +901,9 @@ export type ComponentRoutes = Readonly<Record<string, ComponentHandler>>;
  *  2. `ctx.reply.send` is ephemeral; `ctx.reply.announce` posts to the channel. Public-by-rule
  *     information goes through `announce` or through the renderer, never through `send`
  *     (audit #119/#126).
- *  3. `ctx.dispatch` — never `session.game.dispatch`. It saves, re-arms the tick timer and
- *     renders every event to the audience the ENGINE chose (audit #60).
+ *  3. `ctx.dispatch` — never `session.game.dispatch`. It saves, re-arms the tick timer,
+ *     renders every event to the audience the ENGINE chose (audit #60), and posts the prompt
+ *     for every window the dispatch opened (`Command.prompts`).
  *  4. A refusal is `ctx.reply.fail(error)`, which renders the code into a sentence. Never
  *     invent copy for a `GameError` at a call site (audit #23/#118).
  *  5. Address cards by `CardUid` and players by `PlayerId`, taken from `legalActions()` or from
@@ -908,6 +916,79 @@ export interface Command {
   autocomplete?(ctx: AutocompleteContext): Promise<void>;
   /** Component intents this command owns. See `ComponentRoutes`. */
   readonly components?: ComponentRoutes;
+  /**
+   * The public prompts for the windows this command's flows answer, by pending kind.
+   *
+   * The SESSION posts them — one for every window a dispatch or a tick opens, straight after
+   * the narration — so a handler never prompts a window itself. Exactly one command owns each
+   * kind: see `collectWindowPrompts`.
+   */
+  readonly prompts?: WindowPrompts;
+}
+
+/** A command's window prompts. See `Command.prompts`. */
+export type WindowPrompts = Partial<Readonly<Record<PendingKind, WindowPrompter>>>;
+
+export interface CollectedPrompts {
+  /** Dispatches each window to the prompt of the command that owns its kind. */
+  readonly prompter: WindowPrompter;
+  /** Anything that stops every window having exactly one prompt. Non-empty means do not start. */
+  readonly problems: readonly string[];
+}
+
+/**
+ * Merge every command's `prompts` into the one `WindowPrompter` the registry hands its sessions.
+ *
+ * A kind with no owner is a PROBLEM, because it is a window that opens with no way to answer it
+ * (audit #88). A kind with two owners is one too: two live sets of buttons on one window, and one
+ * of them silently winning, is audit #37 again. `index.ts` refuses to boot on either.
+ */
+export function collectWindowPrompts(
+  commands: Iterable<Command>,
+  kinds: readonly PendingKind[],
+): CollectedPrompts {
+  const owners = new Map<
+    PendingKind,
+    { readonly command: string; readonly build: WindowPrompter }
+  >();
+  const problems: string[] = [];
+  const known: ReadonlySet<string> = new Set(kinds);
+
+  for (const command of commands) {
+    const name = command.data.name;
+    const prompts = command.prompts ?? {};
+    for (const key of Object.keys(prompts)) {
+      if (!known.has(key)) {
+        problems.push(
+          `/${name} prompts a "${key}" window, which the engine never opens`,
+        );
+      }
+    }
+    for (const kind of kinds) {
+      const build = prompts[kind];
+      if (build === undefined) continue;
+      const owner = owners.get(kind);
+      if (owner !== undefined) {
+        problems.push(
+          `the ${kind} window is prompted by both /${owner.command} and /${name}; exactly one command may own it`,
+        );
+        continue;
+      }
+      owners.set(kind, { command: name, build });
+    }
+  }
+
+  for (const kind of kinds) {
+    if (!owners.has(kind)) {
+      problems.push(
+        `no command prompts the ${kind} window, so it would open with no buttons to answer it`,
+      );
+    }
+  }
+
+  const prompter: WindowPrompter = (session, pending, config) =>
+    owners.get(pending.kind)?.build(session, pending, config) ?? null;
+  return { prompter, problems };
 }
 
 // ---------------------------------------------------------------------------

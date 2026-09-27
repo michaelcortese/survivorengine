@@ -21,6 +21,9 @@
  * engine is pure), then saves, then re-arms the timer, then ENQUEUES the rendering. Rendering is
  * an ordered async queue and is never on the path between a player's click and the reply to it,
  * which is what lets the council's dramatic pauses exist at all without blocking anything.
+ *
+ * The same queue posts the PROMPT for every window a mutation opened — the buttons that answer
+ * it — straight after the narration that explains it, whether a click or a timer opened it.
  */
 
 import type { Client, GuildTextBasedChannel } from "discord.js";
@@ -36,6 +39,8 @@ import type {
   GameSnapshot,
   GameView,
   LegalAction,
+  PendingId,
+  PendingView,
   PlayerId,
   PrivateView,
   Result,
@@ -43,6 +48,8 @@ import type {
 import { asGameId, err, ok, statusOf } from "../engine/types.js";
 import { describeCause, type Logger } from "../logger.js";
 import type { SaveStore } from "../persistence/store.js";
+import { bold } from "./format.js";
+import type { Payload } from "./interactions.js";
 import {
   renderEvents,
   type OutgoingMessage,
@@ -110,6 +117,38 @@ export class DirectMessageCourier implements PrivateCourier {
 }
 
 // ---------------------------------------------------------------------------
+// Window prompts
+// ---------------------------------------------------------------------------
+
+/**
+ * The public prompt for ONE window that has just opened: who it is waiting on, until when, and
+ * the buttons that answer it. Null when the window needs no prompt.
+ *
+ * Built by the command that owns the window's flow (`Command.prompts`) and handed in by the
+ * composition root, so this file never imports a command — the dependency rule holds.
+ *
+ * The session, not the command handler, decides WHEN to post it, because the session is the only
+ * thing that sees every mutation. Prompts used to be posted by each handler after its own
+ * dispatch, so a window opened by anything else had no buttons anywhere: a turn step whose
+ * backstop expired stole at random and opened a `take` window the victim could not answer, and
+ * a council backstop that ended in a tie opened the Leader's decision with no prompt at all.
+ */
+export type WindowPrompter = (
+  session: GameSession,
+  pending: PendingView,
+  config: SurvivorConfig,
+) => Payload | null;
+
+/** What one mutation opened, and who (if anyone) made it. Rides the render queue. */
+interface OpenedWindows {
+  readonly ids: readonly PendingId[];
+  /** The acting player, told privately if a prompt cannot be posted. Null for a tick. */
+  readonly actor: PlayerId | null;
+}
+
+const NO_WINDOWS: OpenedWindows = { ids: [], actor: null };
+
+// ---------------------------------------------------------------------------
 // Session
 // ---------------------------------------------------------------------------
 
@@ -120,6 +159,8 @@ export interface SessionDeps {
   readonly store: SaveStore;
   readonly logger: Logger;
   readonly fallbackCourier: PrivateCourier;
+  /** Builds the prompt for each window a mutation opens. Null posts none (tests, tooling). */
+  readonly prompter: WindowPrompter | null;
   /** Called once, when the game reaches a terminal stage and the entry should be dropped. */
   readonly onRetire: (session: GameSession) => void;
   /**
@@ -144,6 +185,7 @@ export class GameSession {
   readonly #store: SaveStore;
   readonly #log: Logger;
   readonly #fallbackCourier: PrivateCourier;
+  readonly #prompter: WindowPrompter | null;
   readonly #onRetire: (session: GameSession) => void;
   readonly #onChannelLost: (session: GameSession) => void;
 
@@ -172,6 +214,7 @@ export class GameSession {
     this.#config = deps.config;
     this.#store = deps.store;
     this.#fallbackCourier = deps.fallbackCourier;
+    this.#prompter = deps.prompter;
     this.#onRetire = deps.onRetire;
     this.#onChannelLost = deps.onChannelLost;
     this.#log = deps.logger.child({ gameId: deps.game.id, channel: deps.channel.id });
@@ -257,6 +300,7 @@ export class GameSession {
       return err("game_not_found", "this game has already ended");
     }
     const nowMs = options.nowMs ?? Date.now();
+    const before = this.#openWindowIds();
     const outcome = this.#game.dispatch(action, nowMs);
     if (!outcome.ok) {
       this.#log.debug("action refused", {
@@ -265,7 +309,13 @@ export class GameSession {
       });
       return outcome;
     }
-    this.#commit(outcome.value, options.courier ?? null, action.type);
+    this.#commit(
+      outcome.value,
+      options.courier ?? null,
+      action.type,
+      before,
+      action.actor,
+    );
     return outcome;
   }
 
@@ -275,30 +325,43 @@ export class GameSession {
    */
   tick(nowMs: number = Date.now()): Result<DispatchOutcome> {
     if (this.#retired) return err("game_not_found", "this game has already ended");
+    const before = this.#openWindowIds();
     const outcome = this.#game.tick(nowMs);
-    if (outcome.ok) this.#commit(outcome.value, null, "tick");
+    if (outcome.ok) this.#commit(outcome.value, null, "tick", before, null);
     else {
       this.#log.error("tick failed", undefined, { code: outcome.error.code });
     }
     return outcome;
   }
 
+  /** Every window open right now. Taken BEFORE a mutation, to see what that mutation opened. */
+  #openWindowIds(): ReadonlySet<PendingId> {
+    return new Set(this.#game.state().pending.map((pending) => pending.id));
+  }
+
   /**
    * The three things that must happen together after every successful mutation, in this order.
    * Doing any of them at a call site is how one of them gets forgotten — audit #60 is exactly
-   * "only /end_turn ever saved".
+   * "only /end_turn ever saved". Prompting the windows it opened is the same kind of thing, and
+   * rides along with the rendering.
    */
   #commit(
     outcome: DispatchOutcome,
     courier: PrivateCourier | null,
     cause: string,
+    before: ReadonlySet<PendingId>,
+    actor: PlayerId | null,
   ): void {
     if (outcome.changed) {
       // THE write rule (ARCHITECTURE.md §9). `events.length > 0` is not a proxy for it.
       this.#store.scheduleSave(this.#game.snapshot());
     }
     this.#armTimer();
-    this.enqueueRender(outcome.events, courier);
+    const opened = this.#game
+      .state()
+      .pending.filter((pending) => !before.has(pending.id))
+      .map((pending) => pending.id);
+    this.enqueueRender(outcome.events, courier, { ids: opened, actor });
 
     this.#log.debug("applied", {
       cause,
@@ -323,8 +386,12 @@ export class GameSession {
    * `channel.send` each time rather than against an interaction token with fifteen minutes to
    * live.
    */
-  enqueueRender(events: readonly GameEvent[], courier: PrivateCourier | null): void {
-    if (events.length === 0) return;
+  enqueueRender(
+    events: readonly GameEvent[],
+    courier: PrivateCourier | null,
+    windows: OpenedWindows = NO_WINDOWS,
+  ): void {
+    if (events.length === 0 && windows.ids.length === 0) return;
     const ctx: RenderContext = {
       view: this.#game.view(),
       config: this.#config,
@@ -337,6 +404,12 @@ export class GameSession {
         // One dead webhook must not take the game with it (audit #22/#46). The state is already
         // committed and saved; only the words are lost.
         this.#log.error("rendering failed", cause);
+      })
+      // AFTER the narration, never before it: the Leader's tie-break buttons used to land ahead
+      // of the paced vote reveal that explains why there is a tie at all.
+      .then(() => this.#promptWindows(windows, courier))
+      .catch((cause: unknown) => {
+        this.#log.error("prompting the open windows failed", cause);
       });
   }
 
@@ -391,10 +464,81 @@ export class GameSession {
   }
 
   /**
-   * Say out loud that someone did not get their private message. Nothing secret is revealed —
-   * only that a message exists — and the alternative is a player silently missing the fact that
-   * they are holding an Immunity Idol.
+   * Post the prompt for every window in `windows` that is STILL open.
+   *
+   * Read at send time rather than at commit time, because the queue is paced: a window that has
+   * already been answered (or has expired) while its narration was going out must not get fresh
+   * live buttons. The buttons are stamped with the seq as it is now, which is harmless — the seq
+   * in a custom_id is informational, and the router checks the game and the incarnation.
+   *
+   * A prompt is the ONLY surface carrying the buttons that answer its window, so a failed post is
+   * not dropped silently: it counts towards losing the channel exactly as a failed narration
+   * does, and whoever acted is told privately, when there is someone to tell.
    */
+  async #promptWindows(
+    windows: OpenedWindows,
+    courier: PrivateCourier | null,
+  ): Promise<void> {
+    const prompter = this.#prompter;
+    if (prompter === null || windows.ids.length === 0 || this.#channelLost) return;
+
+    for (const id of windows.ids) {
+      // Re-read per window: the one before it may have taken a while to send.
+      const pending = this.#game
+        .view()
+        .openPending.find((candidate) => candidate.id === id);
+      if (pending === undefined) continue;
+
+      let payload: Payload | null;
+      try {
+        payload = prompter(this, pending, this.#config);
+      } catch (cause) {
+        this.#log.error("could not build the prompt for an open window", cause, {
+          pending: pending.kind,
+        });
+        continue;
+      }
+      if (payload === null) continue;
+
+      try {
+        await this.channel.send({
+          content: payload.content,
+          embeds: [...(payload.embeds ?? [])],
+          components: [...(payload.components ?? [])],
+        });
+        this.#publishFailures = 0;
+      } catch (cause) {
+        this.#publishFailures += 1;
+        this.#log.error("could not post the prompt for an open window", cause, {
+          pending: pending.kind,
+          consecutiveFailures: this.#publishFailures,
+        });
+        if (
+          this.#publishFailures >= this.#config.discord.maxConsecutivePublishFailures
+        ) {
+          this.#loseChannel();
+          return;
+        }
+        await this.#reportUnpostedPrompt(pending, courier, windows.actor);
+      }
+    }
+  }
+
+  /** Tell whoever acted that a window is open with no buttons anywhere, and why. */
+  async #reportUnpostedPrompt(
+    pending: PendingView,
+    courier: PrivateCourier | null,
+    actor: PlayerId | null,
+  ): Promise<void> {
+    if (courier === null || actor === null) return;
+    const delivered = await courier.deliver([actor], {
+      content: `${bold("I could not post the prompt for an open window in this channel.")} A ${pending.kind.replace(/_/g, " ")} window is waiting on someone and its buttons did not go out — check that I have ${bold("Send Messages")} and ${bold("Embed Links")} here. It will time out on its own if nobody can answer it.`,
+    });
+    if (!delivered) {
+      this.#log.warn("could not tell the actor about an unposted prompt", { actor });
+    }
+  }
+
   /**
    * The channel has stopped taking messages: deleted, archived, or the bot was removed.
    *
@@ -419,6 +563,11 @@ export class GameSession {
     for (const playerId of playerIds) this.#undeliverable.delete(playerId);
   }
 
+  /**
+   * Say out loud that someone did not get their private message. Nothing secret is revealed —
+   * only that a message exists — and the alternative is a player silently missing the fact that
+   * they are holding an Immunity Idol.
+   */
   async #reportUndeliverable(playerIds: readonly PlayerId[]): Promise<void> {
     const fresh = playerIds.filter((playerId) => !this.#undeliverable.has(playerId));
     if (fresh.length === 0) return;
@@ -547,6 +696,8 @@ export interface RegistryDeps {
   readonly store: SaveStore;
   readonly logger: Logger;
   readonly client: Client;
+  /** The commands' window prompts, collected by `index.ts`. Omitted, no prompts are posted. */
+  readonly prompter?: WindowPrompter;
 }
 
 export interface CreateSessionParams {
@@ -572,6 +723,7 @@ export class SessionRegistry {
   readonly #log: Logger;
   readonly #client: Client;
   readonly #fallbackCourier: PrivateCourier;
+  readonly #prompter: WindowPrompter | null;
 
   constructor(deps: RegistryDeps) {
     this.#config = deps.config;
@@ -579,6 +731,7 @@ export class SessionRegistry {
     this.#log = deps.logger.child({ component: "registry" });
     this.#client = deps.client;
     this.#fallbackCourier = new DirectMessageCourier(deps.client, this.#log);
+    this.#prompter = deps.prompter ?? null;
   }
 
   get size(): number {
@@ -710,6 +863,7 @@ export class SessionRegistry {
       store: this.#store,
       logger: this.#log,
       fallbackCourier: this.#fallbackCourier,
+      prompter: this.#prompter,
       onRetire: (retired) => {
         if (this.#sessions.get(retired.gameId) === retired) {
           this.#sessions.delete(retired.gameId);

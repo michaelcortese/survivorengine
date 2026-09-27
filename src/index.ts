@@ -41,13 +41,15 @@ import {
   type SurvivorConfig,
 } from "./config.js";
 import { validateCatalog } from "./engine/cards.js";
-import type {
-  BotContext,
-  Command,
-  ComponentHandler,
-  EventModule,
+import {
+  collectWindowPrompts,
+  type BotContext,
+  type Command,
+  type ComponentHandler,
+  type EventModule,
 } from "./discord/interactions.js";
-import { SessionRegistry } from "./discord/registry.js";
+import { SessionRegistry, type WindowPrompter } from "./discord/registry.js";
+import type { PendingKind } from "./engine/types.js";
 import { assertIntentCodesAreDisjoint } from "./discord/ui.js";
 import { createLogger, describeCause, type Logger } from "./logger.js";
 import { SaveStore } from "./persistence/store.js";
@@ -210,9 +212,20 @@ export interface LoadedCommands {
   readonly commands: ReadonlyMap<string, Command>;
   /** Component route key -> handler. See `ComponentRoutes` in `discord/interactions.ts`. */
   readonly components: ReadonlyMap<string, ComponentHandler>;
+  /** Every command's window prompts, merged. See `Command.prompts`. */
+  readonly prompter: WindowPrompter;
   /** Anything that stops the bot being correct. Non-empty means do not start. */
   readonly problems: readonly string[];
 }
+
+/**
+ * Every kind of window the engine can open. `config.ts` keys a timing by each one, and
+ * `PendingWindowsCoverEveryPendingKind` in `engine/types.ts` fails to compile if the two lists
+ * ever drift — so this is the whole list, at runtime, without a third copy of it.
+ */
+const PENDING_KINDS = Object.keys(
+  config.engine.timings.pendingWindows,
+) as PendingKind[];
 
 /**
  * Load `<baseDir>/commands/**`.
@@ -222,7 +235,8 @@ export interface LoadedCommands {
  *
  * A duplicate command name or a duplicate component route key is a PROBLEM, not a warning. Two
  * commands claiming one component key is audit #37 (two things sharing an identifier and one of
- * them silently winning) and it is far cheaper to fail at boot than to debug at a council.
+ * them silently winning) and it is far cheaper to fail at boot than to debug at a council. So is
+ * a kind of window with no prompt, or with two (`collectWindowPrompts`).
  */
 export async function loadCommands(
   baseDir: string,
@@ -281,7 +295,9 @@ export async function loadCommands(
       `no commands were found under ${join(baseDir, "commands")} — a build that registers zero commands is audit #103, so this is fatal rather than a warning`,
     );
   }
-  return { commands, components, problems };
+  const prompts = collectWindowPrompts(commands.values(), PENDING_KINDS);
+  problems.push(...prompts.problems);
+  return { commands, components, prompter: prompts.prompter, problems };
 }
 
 export interface LoadedEvents {
@@ -399,7 +415,6 @@ async function main(): Promise<void> {
     // the bot never reads a message a player wrote.
     intents: [GatewayIntentBits.Guilds],
   });
-  const registry = new SessionRegistry({ config, store, logger: log, client });
 
   const baseDir = dirname(fileURLToPath(import.meta.url));
   const loadedCommands = await loadCommands(baseDir, log);
@@ -410,6 +425,15 @@ async function main(): Promise<void> {
       log.error("could not load a module", undefined, { problem });
     process.exit(1);
   }
+
+  // After the commands, because the sessions post the prompts the commands declare.
+  const registry = new SessionRegistry({
+    config,
+    store,
+    logger: log,
+    client,
+    prompter: loadedCommands.prompter,
+  });
 
   const bot: BotContext = {
     client,

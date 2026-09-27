@@ -11,7 +11,8 @@
  *   3. THE VICTIM learns a card was taken, and gets the chance to answer it. The old bot told
  *      them NOTHING — a card simply vanished from their hand — and Sorry For You was a command
  *      they had to know to type inside a window they were never shown. Here the engine opens the
- *      window and this command posts the prompt, with the victim's own buttons on it.
+ *      window and the session posts its prompt (`/play` owns it), with the victim's own buttons
+ *      on it — the same prompt a steal forced by the turn's backstop gets.
  *
  * The dispatch itself is three lines. Everything else in this file is those three facts reaching
  * the right people, and nothing here re-checks a rule: whose turn it is, whether the steal step
@@ -32,7 +33,7 @@ import { UI_INTENT, packPlayerArg, playerOptions, select } from "../discord/ui.j
 import type { GameEvent } from "../engine/events.js";
 import type { PlayerId } from "../engine/types.js";
 import { asPlayerId } from "../engine/types.js";
-import { announceNewWindows, applyAndAnnounce, openPendingIds } from "./play.js";
+import { applyAndConfirm } from "./play.js";
 
 /** `args[0]` of the target picker this command mints. See `ComponentRoutes` for why it exists. */
 const FLOW = "stl";
@@ -138,7 +139,7 @@ const pickVictim: ComponentHandler = async (ctx) => {
     });
     return;
   }
-  await applyAndAnnounce(
+  await applyAndConfirm(
     ctx,
     { type: "steal_random", actor: ctx.actor, target },
     `You reach into ${mention(target)}'s hand. Watch the channel — what you got is on its way to you privately.`,
@@ -169,7 +170,6 @@ const steal: Command = {
     const session = found.value;
     const target = asPlayerId(ctx.interaction.options.getUser("player", true).id);
 
-    const before = openPendingIds(session);
     const outcome = ctx.dispatch(session, {
       type: "steal_random",
       actor: ctx.actor,
@@ -180,12 +180,9 @@ const steal: Command = {
       return;
     }
 
-    // The table already heard it: `ctx.dispatch` published every event to the audience the
-    // ENGINE chose. This is only the thief's own copy.
+    // The table already heard it, and the victim's prompt follows the narration: `ctx.dispatch`
+    // did both. This is only the thief's own copy.
     await ctx.reply.send({ content: receipt(outcome.value.events, ctx.actor) });
-
-    // …and this is the victim's chance to answer, which is the half the old bot never posted.
-    await announceNewWindows(ctx.reply, session, before, ctx.config);
   },
 
   components: {

@@ -19,13 +19,13 @@
  *  - #44      a flow that outlived its interaction token. Nothing here sleeps and nothing
  *             here is a collector; each step is a fresh component carrying the state the next
  *             step needs, so a flow is resumable for as long as the nonce is current.
- *  - #88      a window that opened with no way to answer it. `announceNewWindows()` posts a
- *             prompt for every window a dispatch opens, addressed to the players the ENGINE
- *             says it is waiting on — and a button whose window has since closed re-renders
- *             dead instead of failing.
+ *  - #88      a window that opened with no way to answer it. `windowPrompt()` is this
+ *             command's `prompts` entry for every window a turn can open, addressed to the
+ *             players the ENGINE says it is waiting on, and the SESSION posts it for every
+ *             window that opens — by a click in any command, or by a timer. A button whose
+ *             window has since closed re-renders dead instead of failing.
  *
- * `announceNewWindows`, `applyAndAnnounce` and `openPendingIds` are exported because `/steal`
- * and `/draw` open the same kinds of window and must prompt them the same way.
+ * `applyAndConfirm` is exported because `/steal` and `/draw` answer their buttons the same way.
  */
 
 import {
@@ -43,7 +43,6 @@ import type {
   ComponentContext,
   ComponentHandler,
   Payload,
-  Responder,
 } from "../discord/interactions.js";
 import type { GameSession } from "../discord/registry.js";
 import {
@@ -66,6 +65,7 @@ import type {
   CardUid,
   ChallengeKind,
   ChallengeSubmission,
+  DispatchOutcome,
   FingerCount,
   GameError,
   LegalAction,
@@ -245,11 +245,6 @@ const FLOW_BY_ACTION: ReadonlyMap<ActionKind, PlayFlow> = new Map(
 // Small shared helpers
 // ---------------------------------------------------------------------------
 
-/** Every window open right now. Snapshot it BEFORE a dispatch to spot what that dispatch opened. */
-export function openPendingIds(session: GameSession): ReadonlySet<PendingId> {
-  return new Set(session.view().openPending.map((pending) => pending.id));
-}
-
 /** Resolve a packed or plain player id against this table. Never trusts an id from the wire. */
 function resolvePlayer(session: GameSession, raw: string): PlayerId | null {
   for (const player of session.view().players) {
@@ -299,7 +294,7 @@ const stillOpen = (session: GameSession, pendingId: PendingId | null): boolean =
   session.view().openPending.some((pending) => pending.id === pendingId);
 
 // ---------------------------------------------------------------------------
-// Prompting the windows a dispatch opened
+// Prompting the windows a turn opens
 // ---------------------------------------------------------------------------
 
 /** A button that opens one player's private menu for one window. */
@@ -331,7 +326,8 @@ const nameOf = (session: GameSession, playerId: PlayerId): string =>
   "Someone";
 
 /**
- * The public prompt for one open window.
+ * The public prompt for one open window. This command's `prompts` entry for the six kinds it
+ * owns; the session posts it once the narration of whatever opened the window has gone out.
  *
  * PUBLIC on purpose, and it says nothing private: who is being waited on, how long they have
  * and what kind of decision it is are all facts the physical game puts on the table. What the
@@ -488,7 +484,7 @@ function windowPrompt(
       };
     }
 
-    // Owned by the council flow: prompted where the council is run, not here.
+    // Owned by the council flow: `/council` declares these two prompts, not this command.
     case "leader_decision":
     case "inheritance":
       return null;
@@ -499,68 +495,23 @@ function windowPrompt(
 }
 
 /**
- * Post a prompt for every window that opened since `before` was taken.
- *
- * Called after EVERY dispatch these commands make, because a single play can open several at
- * once — one Sorry For You against a Let's Form an Alliance leaves both thieves owing a discard,
- * and each of those is its own window with its own deadline.
+ * THE dispatch path for every component in this file: apply, then answer the presser. A refusal
+ * is rendered from its code and changes nothing. Whatever the play opened is prompted by the
+ * session, after the table has been told what happened.
  */
-export async function announceNewWindows(
-  reply: Responder,
-  session: GameSession,
-  before: ReadonlySet<PendingId>,
-  config: SurvivorConfig,
-): Promise<void> {
-  for (const pending of session.view().openPending) {
-    if (before.has(pending.id)) continue;
-    const payload = windowPrompt(session, pending, config);
-    if (payload !== null) await announceWindowOrSayWhy(reply, payload, pending);
-  }
-}
-
-/**
- * Post a window prompt, and do not let a failed post pass silently.
- *
- * These prompts are the ONLY surface carrying the buttons that answer a `take`, `discard`,
- * `challenge`, `card_choice`, `alliance_target` or `steal_victim` window — this file's own
- * header says so. `Responder.announce` returns `null` when the send fails (missing Embed Links,
- * Send Messages just revoked, an unretried 429) and the result was dropped on the floor, so the
- * window sat open with no affordance anywhere and the engine would not move on: the table
- * looked at nothing until the tick forfeited it. Note that `announce`'s own `isSendable()`
- * guard is a TYPE check in discord.js 14 (`return 'send' in this`), not a permission check, so
- * it cannot pre-empt this.
- */
-export async function announceWindowOrSayWhy(
-  reply: Responder,
-  payload: Payload,
-  pending: { readonly id: PendingId; readonly kind: string },
-): Promise<void> {
-  const posted = await reply.announce(payload);
-  if (posted !== null) return;
-  // Fall back to the acting interaction, so at least somebody at the table is told a window is
-  // open that they cannot see.
-  await reply.send({
-    content: `${bold("I could not post the prompt for an open window in this channel.")} A ${pending.kind.replace(/_/g, " ")} window is waiting on someone and its buttons did not go out — check that I have ${bold("Send Messages")} and ${bold("Embed Links")} here. It will time out on its own if nobody can answer it.`,
-  });
-}
-
-/**
- * THE dispatch path for every component in this file: apply, answer the presser, then prompt
- * whatever the engine just opened. A refusal is rendered from its code and changes nothing.
- */
-export async function applyAndAnnounce(
+export async function applyAndConfirm(
   ctx: ComponentContext,
   action: Action,
-  done: string,
+  done: string | ((outcome: DispatchOutcome) => string),
 ): Promise<void> {
-  const before = openPendingIds(ctx.session);
   const outcome = ctx.dispatch(action);
   if (!outcome.ok) {
     await ctx.reply.fail(outcome.error);
     return;
   }
-  await respond(ctx, { content: done });
-  await announceNewWindows(ctx.reply, ctx.session, before, ctx.config);
+  await respond(ctx, {
+    content: typeof done === "string" ? done : done(outcome.value),
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -785,7 +736,6 @@ function resolveWindow(flow: WindowFlow): ComponentHandler {
       return;
     }
 
-    const before = openPendingIds(ctx.session);
     const outcome = ctx.dispatch(action.value);
     if (!outcome.ok) {
       await ctx.reply.fail(outcome.error);
@@ -794,7 +744,6 @@ function resolveWindow(flow: WindowFlow): ComponentHandler {
 
     const again = windowMenu(ctx, flow, pendingId);
     await respond(ctx, again ?? { content: WINDOW_DONE[flow] });
-    await announceNewWindows(ctx.reply, ctx.session, before, ctx.config);
   };
 }
 
@@ -805,7 +754,6 @@ const declineWindow: ComponentHandler = async (ctx) => {
     await ctx.reply.fail(WINDOW_CLOSED);
     return;
   }
-  const before = openPendingIds(ctx.session);
   const outcome = ctx.dispatch({
     type: "decline_reaction",
     actor: ctx.actor,
@@ -817,7 +765,6 @@ const declineWindow: ComponentHandler = async (ctx) => {
   }
   await ctx.reply.send({ content: "You let it through." });
   await ctx.reply.disableSource();
-  await announceNewWindows(ctx.reply, ctx.session, before, ctx.config);
 };
 
 // ---------------------------------------------------------------------------
@@ -1117,7 +1064,7 @@ async function continueFlow(
     await ctx.reply.fail(action.error);
     return;
   }
-  await applyAndAnnounce(
+  await applyAndConfirm(
     ctx,
     action.value,
     `${bold(CARD_CATALOG[flow.card].name)} played. The table has been told; anything it opened is in the channel.`,
@@ -1243,6 +1190,16 @@ const play: Command = {
     [`${UI_INTENT.Confirm}:${FLOW.Victim}`]: resolveWindow(FLOW.Victim),
 
     [`${UI_INTENT.Cancel}:${FLOW.Block}`]: declineWindow,
+  },
+
+  // Every window a turn can open. The session posts these; see `windowPrompt`.
+  prompts: {
+    take: windowPrompt,
+    discard: windowPrompt,
+    challenge: windowPrompt,
+    card_choice: windowPrompt,
+    alliance_target: windowPrompt,
+    steal_victim: windowPrompt,
   },
 };
 

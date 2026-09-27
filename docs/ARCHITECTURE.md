@@ -436,6 +436,15 @@ Three properties this buys:
   `discord.maxConsecutivePublishFailures` failed channel sends in a row the session concludes
   the channel is gone, flushes its save and drops itself, rather than playing the game out for
   hours against a channel nobody can see.
+- **Every window that opens is prompted by the session, not by a handler.** After narrating a
+  mutation — a click or a tick alike — the session posts the prompt for each window that
+  mutation opened and that is still open: the words and the buttons that answer it. The prompt
+  is built by the command that owns the window's kind (`Command.prompts`); `index.ts` merges
+  them with `collectWindowPrompts` and refuses to boot if a kind has no owner or two. Prompts
+  used to be posted by the handler that dispatched, so a window opened by anything else had no
+  buttons anywhere — a steal forced by the turn backstop left the victim unable to block it, and
+  a tie reached when the voting backstop expired left the Leader with no controls — and even the
+  Leader's own press posted the tie-break buttons ahead of the paced vote reveal.
 - **`legalActions(player, now)`** returns `LegalAction[]` — `{ kind, pendingId?,
 playableCardUids?, legalTargets?, optionCardUids?, chooseCount?, deadlineMs? }` — not bare
   discriminator strings. A renderer maps one entry to one component and **never consults
@@ -456,7 +465,8 @@ unrevealed vote target and no un-filled challenge submission.
 ### Timers
 
 The Discord layer keeps **one** timer per game, set to `game.nextDeadline()`, which fires
-`game.tick(Date.now())` and re-arms. There are no `setTimeout` sleeps driving gameplay. Audit
+`game.tick(Date.now())` and re-arms. A tick is committed exactly like a click: saved, narrated,
+and any window it opened is prompted. There are no `setTimeout` sleeps driving gameplay. Audit
 #44: the old Tribal Council burned 10m30s of fixed sleeps against a Discord interaction token
 that expires after 15 minutes, so its later messages simply threw — and audit #64 announced
 "8 minutes (30 seconds for testing)" while blocking for a real 8 minutes with no way to end

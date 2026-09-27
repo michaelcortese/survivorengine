@@ -14,7 +14,7 @@
  *     takes it from there;
  *   * a Camp Raid resolving, which opens a take window against the drawer for the card they
  *     just drew ("but only after they look at it"). That window needs a prompt with the
- *     drawer's own buttons on it, which is what `announceNewWindows` posts.
+ *     drawer's own buttons on it, which the session posts once the draw has been narrated.
  */
 
 import { SlashCommandBuilder } from "discord.js";
@@ -27,7 +27,7 @@ import type {
 } from "../discord/interactions.js";
 import type { GameEvent } from "../engine/events.js";
 import type { PlayerId } from "../engine/types.js";
-import { announceNewWindows, applyAndAnnounce, openPendingIds } from "./play.js";
+import { applyAndConfirm } from "./play.js";
 
 /**
  * The drawer's own account of their draw, read from the events the dispatch produced.
@@ -69,9 +69,11 @@ function summary(events: readonly GameEvent[], actor: PlayerId): string {
   return lines.length === 0 ? "You drew. Your turn is over." : lines.join("\n");
 }
 
-/** A Draw button minted anywhere in the bot lands here, so its windows get prompted too. */
+/** A Draw button minted anywhere in the bot lands here, so the drawer hears what they drew. */
 const pressDraw: ComponentHandler = async (ctx) => {
-  await applyAndAnnounce(ctx, { type: "draw_card", actor: ctx.actor }, "You drew.");
+  await applyAndConfirm(ctx, { type: "draw_card", actor: ctx.actor }, (outcome) =>
+    summary(outcome.events, ctx.actor),
+  );
 };
 
 const draw: Command = {
@@ -87,7 +89,6 @@ const draw: Command = {
     }
     const session = found.value;
 
-    const before = openPendingIds(session);
     const outcome = ctx.dispatch(session, { type: "draw_card", actor: ctx.actor });
     if (!outcome.ok) {
       await ctx.reply.fail(outcome.error);
@@ -95,7 +96,6 @@ const draw: Command = {
     }
 
     await ctx.reply.send({ content: summary(outcome.value.events, ctx.actor) });
-    await announceNewWindows(ctx.reply, session, before, ctx.config);
   },
 
   components: {

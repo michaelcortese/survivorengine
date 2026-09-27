@@ -60,7 +60,7 @@ import type {
   ComponentContext,
   ComponentHandler,
   Payload,
-  Responder,
+  WindowPrompts,
 } from "../discord/interactions.js";
 import { ANY_PLAYER, actionFromComponent } from "../discord/interactions.js";
 import type { GameSession } from "../discord/registry.js";
@@ -80,7 +80,6 @@ import {
   type Row,
 } from "../discord/ui.js";
 import { CARD_CATALOG } from "../engine/cards.js";
-import { announceNewWindows, announceWindowOrSayWhy, openPendingIds } from "./play.js";
 import type {
   Action,
   ActionKind,
@@ -739,73 +738,47 @@ const resolveCouncilPlay: ComponentHandler = async (ctx) => {
 };
 
 /**
- * Dispatch, tell the presser, and prompt whatever the play just opened.
+ * Dispatch and tell the presser.
  *
  * The TABLE has already been told: `ctx.dispatch` rendered every event to the audience the
  * engine chose, and every one of these five plays is public by rule ("in the open", "face up").
+ * Whatever the play opened — a `take` for Control the Vote, say — is prompted by the session.
  */
 async function dispatchCouncilPlay(
   ctx: ComponentContext,
   action: Action,
   done: string,
 ): Promise<void> {
-  const before = openWindowIds(ctx.session);
   const outcome = ctx.dispatch(action);
   if (!outcome.ok) {
     await ctx.reply.fail(outcome.error);
     return;
   }
   await ctx.reply.update({ content: done, components: [] });
-  await announceCouncilWindows(ctx.reply, ctx.session, before, ctx.config);
 }
 
 // ---------------------------------------------------------------------------
 // The two windows the council owns
 // ---------------------------------------------------------------------------
 
-/** Every window open right now. Take it BEFORE a dispatch to spot what that dispatch opened. */
-const openWindowIds = openPendingIds;
-
 /**
- * Post a prompt for every window a council dispatch opened.
+ * This command's `prompts`.
  *
- * TWO sources, because a council opens two different families of window:
- *
- *  - The ordinary ones — a `take` (Control the Vote takes somebody's Vote Card, and the victim
- *    may answer with Sorry For You!), a forced discard, a card choice. `play.ts` owns those
- *    prompts and `announceNewWindows` is exported for exactly this. Without this call a Tribal
- *    Advantage opened a take window that NOTHING in the bot prompted, the victim had no way to
- *    block or to let it through, and the council could not reach its tally until the deadline
- *    expired: `resolveEliminations` refuses to run while any window is open.
- *  - The two the council owns. `play.ts` deliberately declines both — `windowPrompt` returns
- *    null for `leader_decision` and `inheritance` — because two commands prompting one window
- *    would put two sets of live buttons on it.
+ * `play.ts` deliberately declines both — its `windowPrompt` returns null for `leader_decision`
+ * and `inheritance` — because two commands prompting one window would put two sets of live
+ * buttons on it. The session posts them AFTER the narration: the tie-break prompt used to be
+ * posted by the Leader's own press, ahead of the paced vote reveal that explains why there is a
+ * tie at all, and a tie reached when the voting backstop expired got no prompt whatsoever.
  *
  * Everything here is public and says nothing private: WHO is being waited on and until WHEN are
  * table facts. Which cards were claimed stays in `take_resolved`, which is private.
  */
-async function announceCouncilWindows(
-  reply: Responder,
-  session: GameSession,
-  before: ReadonlySet<PendingId>,
-  config: SurvivorConfig,
-): Promise<void> {
-  await announceNewWindows(reply, session, before, config);
-  const view = session.view();
-  for (const pending of view.openPending) {
-    if (before.has(pending.id)) continue;
-    const payload =
-      pending.kind === "inheritance"
-        ? inheritancePrompt(session, pending.id, config)
-        : pending.kind === "leader_decision"
-          ? leaderDecisionPrompt(session, pending.waitingOnIds, config)
-          : null;
-    // Checked, not dropped: a `leader_decision` prompt that fails to post wedges the tally for
-    // the full backstop with nobody able to see why (`resolveEliminations` refuses to run while
-    // any window is open).
-    if (payload !== null) await announceWindowOrSayWhy(reply, payload, pending);
-  }
-}
+const COUNCIL_PROMPTS: WindowPrompts = {
+  inheritance: (session, pending, config) =>
+    inheritancePrompt(session, pending.id, config),
+  leader_decision: (session, pending, config) =>
+    leaderDecisionPrompt(session, pending.waitingOnIds, config),
+};
 
 /**
  * The claim prompt.
@@ -1223,12 +1196,13 @@ async function pressAndRefresh(ctx: ComponentContext): Promise<void> {
   });
   if (!built.ok) return ctx.reply.fail(built.error);
 
-  const before = openWindowIds(ctx.session);
   const outcome = ctx.dispatch(built.value);
   if (!outcome.ok) return ctx.reply.fail(outcome.error);
 
   // The table has already been told what happened: `ctx.dispatch` rendered every event to the
-  // audience the ENGINE chose. This only refreshes the presser's own controls.
+  // audience the ENGINE chose, and prompts whatever the press opened — reading the votes is what
+  // opens the Inheritance window and, on an unclear vote, the Leader's tie-break (see
+  // `COUNCIL_PROMPTS`). This only refreshes the presser's own controls.
   await ctx.reply.update(
     panel({
       session: ctx.session,
@@ -1237,10 +1211,6 @@ async function pressAndRefresh(ctx: ComponentContext): Promise<void> {
       config: ctx.config,
     }),
   );
-  // Reading the votes is what eliminates somebody, and eliminating somebody is what opens the
-  // Inheritance window and (on an unclear vote) the Leader's tie-break. Both belong to this
-  // command, so both are prompted from here — see `announceCouncilWindows`.
-  await announceCouncilWindows(ctx.reply, ctx.session, before, ctx.config);
 }
 
 // ---------------------------------------------------------------------------
@@ -1313,6 +1283,8 @@ const council: Command = {
       );
     },
   },
+
+  prompts: COUNCIL_PROMPTS,
 };
 
 export default council;
